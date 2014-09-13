@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
+    <metadata>
+        <id>EFCache.Redis</id>
+        <version>1.0.0-beta</version>
+        <authors>Ian Robertson</authors>
+        <projectUrl>https://github.com/silentbobbert/EFCache.Redis</projectUrl>
+        <iconUrl>https://avatars0.githubusercontent.com/u/3257988</iconUrl>
+        <requireLicenseAcceptance>false</requireLicenseAcceptance>
+        <description>Extends EFCache by adding Redis support. In Beta until EFCache becomes stable.</description>
+        <releaseNotes>First Release</releaseNotes>
+        <tags>EF6 EF6.1.1 Redis Caching L2</tags>
+        <dependencies>
+		   <dependency id="EntityFramework" version="6.1.1" />
+			<dependency id="EntityFramework.Cache" version="1.0.0-beta2" />
+			<dependency id="StackExchange.Redis" version="1.0.331" />
+        </dependencies>
+    </metadata>
+    <files>
+        <file src="bin\Release\EFCache.Redis.dll" target="lib\net451\EFCache.Redis.dll" />
+    </files>
+</package>
