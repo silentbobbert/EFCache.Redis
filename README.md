@@ -7,9 +7,19 @@ I wanted to add L2 Cache to EF using Redis - there was nothing available at the 
 
 I found EFCache written by Pawel Kadluczka (moozzyk) over on CodePlex
 http://efcache.codeplex.com/
+
 http://www.nuget.org/packages/EntityFramework.Cache
 
 Which gave me a very good starting point. I forked EFCache and asked Pawel to pull my changes, however for very good 
 reasons, Pawel declined to do so. I added dependencies to the core EFCache project that Pawel didnt want to force
 every consumer of EFCache to carry. He suggested I create my own NuGet Package, and use EFCache as a dependency
 instead. So here it is, here is my code.
+
+See the package on NuGet:
+https://www.nuget.org/packages/EFCache.Redis
+
+You can add via the package manager in Visual Studio (If using GUI, you need to change from "Stable Only" 
+to "Include Prerelease")
+
+Or Package Manager Console:
+Install-Package EFCache.Redis -Pre
