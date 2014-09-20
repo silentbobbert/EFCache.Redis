@@ -1,0 +1,95 @@
+﻿<#@ template debug="true" hostspecific="true" language="C#" #>
+<#@ output extension=".cs" #>
+<#@ assembly name="System.Windows.Forms" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+<#
+	// http://stackoverflow.com/questions/826777/how-to-have-an-auto-incrementing-version-number-visual-studio
+	//
+	// INSTRUCTIONS:
+	//
+	// 1. In a new or existing project, open the AssemblyInfo.cs file and make a note of the [assembly: Guid("...")]
+	// 2. Delete the AssemblyInfo.cs
+	// 3. Create a text template called AssemblyInfo.tt and move it to the Properties folder
+	// 4. Copy and past this template into the new AssemblyInfo.tt file
+	// 5. Edit the AssemblyInfo.tt file and set the Guid to be the value noted in step 1
+	// 6. Add the following pre-build event:
+	// 
+	//    call "$(SolutionDir)UpdateVersion.bat" "$(DevEnvDir)" "$(ConfigurationName)" "$(ProjectDir)Properties\AssemblyInfo.tt" "$(ProjectDir)Properties\AssemblyInfo.cs" "$(ProjectName)"
+	//
+	// 7. Make sure the UpdateVersion.bat script exists at the same level as the solution file (.sln)
+	// 8. If the project is under TFS, make sure the TFSENABLED variable in the batch file is set to 1
+	// 9. If you want to check in version number changes on non-release builds, make sure the UPDATEDEBUG flag in
+	//    the batch file is set to 1
+		
+	int incBuild = 1;
+			
+	try
+	{
+		string currentDirectory = Path.GetDirectoryName(Host.TemplateFile);
+		string assemblyInfo = File.ReadAllText(Path.Combine(currentDirectory, "AssemblyInfo.cs"));
+		//string assemblyInfo = "[assembly: AssemblyVersion(\"2013.05.10.5\")]";
+		Regex pattern = new Regex("AssemblyVersion\\(\"(?<year>\\d+)\\.(?<month>\\d+)\\.(?<day>\\d+)\\.(?<build>\\d+)\"\\)");
+		MatchCollection matches = pattern.Matches(assemblyInfo);
+
+		year = Convert.ToInt32(matches[0].Groups["year"].Value);
+		month = Convert.ToInt32(matches[0].Groups["month"].Value);
+		day = Convert.ToInt32(matches[0].Groups["day"].Value);
+		if (DateTime.Now.Subtract(new DateTime(year, month, day)).Days == 0)
+		{
+			build = Convert.ToInt32(matches[0].Groups["build"].Value) + incBuild;
+		}
+		else
+		{
+			build = 1;
+		}
+		year = DateTime.Now.Year;
+		month = DateTime.Now.Month;
+		day = DateTime.Now.Day;
+	}
+	catch
+	{
+	}
+#>
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+// General Information about an assembly is controlled through the following 
+// set of attributes. Change these attribute values to modify the information
+// associated with an assembly.
+
+[assembly: AssemblyTitle("EFCache.Redis")]
+[assembly: AssemblyDescription("Provides a Redis implementation of EFCache")]
+[assembly: AssemblyConfiguration("")]
+[assembly: AssemblyCompany("")]
+[assembly: AssemblyProduct("EFCache.Redis")]
+[assembly: AssemblyCopyright("Copyright ©  <#= this.year #>")]
+[assembly: AssemblyTrademark("Ian Robertson")]
+[assembly: AssemblyCulture("")]
+//[assembly: log4net.Config.XmlConfigurator(Watch = true)]
+
+// Setting ComVisible to false makes the types in this assembly not visible 
+// to COM components.  If you need to access a type in this assembly from 
+// COM, set the ComVisible attribute to true on that type.
+[assembly: ComVisible(false)]
+
+// The following GUID is for the ID of the typelib if this project is exposed to COM
+[assembly: Guid("fbd27401-e8fa-4f19-97d3-ff8f8002ef72")]
+
+// Version information for an assembly consists of the following four values:
+//
+//      Major Version
+//      Minor Version
+//      Build Number
+//      Revision
+//
+[assembly: AssemblyVersion("<#= this.year #>.<#= this.month #>.<#= this.day #>.<#= this.build #>")]
+[assembly: AssemblyFileVersion("<#= this.year #>.<#= this.month #>.<#= this.day #>.<#= this.build #>")]
+
+<#+
+	int year = DateTime.Now.Year;
+	int month = DateTime.Now.Month;
+	int day = DateTime.Now.Day;
+	int build = 0;
+#>
