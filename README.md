@@ -22,4 +22,4 @@ You can add via the package manager in Visual Studio (If using GUI, you need to 
 to "Include Prerelease")
 
 Or Package Manager Console:
-Install-Package EFCache.Redis -Pre
+Install-Package EFCache.Redis
