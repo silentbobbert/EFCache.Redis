@@ -18,8 +18,4 @@ instead. So here it is, here is my code.
 See the package on NuGet:
 https://www.nuget.org/packages/EFCache.Redis
 
-You can add via the package manager in Visual Studio (If using GUI, you need to change from "Stable Only" 
-to "Include Prerelease")
-
-Or Package Manager Console:
-Install-Package EFCache.Redis
+You can add via the package manager in Visual Studio or Package Manager Console: Install-Package EFCache.Redis
