@@ -1,9 +1,9 @@
-﻿using System.Security.Cryptography;
-using System.Text;
-using StackExchange.Redis;
+﻿using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace EFCache.Redis
 {
@@ -12,7 +12,6 @@ namespace EFCache.Redis
         private IDatabase _database;
         private readonly ConnectionMultiplexer _redis;
         private readonly Dictionary<string, HashSet<string>> _entitySetToKey = new Dictionary<string, HashSet<string>>();
-        private readonly SHA1 _sha = new SHA1CryptoServiceProvider();
         public RedisCache(string config)
         {
             _redis = ConnectionMultiplexer.Connect(config);
@@ -100,8 +99,11 @@ namespace EFCache.Redis
             //Looking up large Keys in Redis can be expensive (comparing Large Strings), so if keys are large, hash them, otherwise if keys are short just use as-is
             if (key.Length <= 128) return key;
 
-            key = Convert.ToBase64String(_sha.ComputeHash(Encoding.UTF8.GetBytes(key)));
-            return key;
+            using (var sha = new SHA1CryptoServiceProvider())
+            {
+                key = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(key)));
+                return key;
+            }
         }
 
         public void InvalidateSets(IEnumerable<string> entitySets)
