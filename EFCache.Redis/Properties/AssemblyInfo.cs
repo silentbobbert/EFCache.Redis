@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("EFCache.Redis")]
-[assembly: AssemblyCopyright("Copyright ©  2014")]
+[assembly: AssemblyCopyright("Copyright ©  2015")]
 [assembly: AssemblyTrademark("Ian Robertson")]
 [assembly: AssemblyCulture("")]
 //[assembly: log4net.Config.XmlConfigurator(Watch = true)]
@@ -31,6 +31,6 @@ using System.Runtime.InteropServices;
 //      Build Number
 //      Revision
 //
-[assembly: AssemblyVersion("2014.11.28.1")]
-[assembly: AssemblyFileVersion("2014.11.28.1")]
+[assembly: AssemblyVersion("2015.3.28.1")]
+[assembly: AssemblyFileVersion("2015.3.28.1")]
 
