@@ -17,6 +17,7 @@
         </dependencies>
     </metadata>
     <files>
-        <file src="bin\Release\EFCache.Redis.dll" target="lib\net451\EFCache.Redis.dll" />
+        <file src="lib\net45\_._" target="lib\net45\_._" />
+        <file src="lib\net451\_._" target="lib\net451\_._" />
     </files>
 </package>
