@@ -101,7 +101,7 @@ namespace EFCache.Redis.Tests
 
             cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
 
-            Assert.Equal(1, cache.Count);
+            Assert.Equal(3, cache.Count); // "1", "ES1", "ES2"
 
             cache.InvalidateItem("1");
 
@@ -118,7 +118,7 @@ namespace EFCache.Redis.Tests
             cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.Now.AddMinutes(-1));
             cache.PutItem("2", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
 
-            Assert.Equal(2, cache.Count);
+            Assert.Equal(4, cache.Count); // "1", "2", "ES1", "ES2"
 
             cache.Purge();
 

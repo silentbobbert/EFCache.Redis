@@ -11,8 +11,8 @@ namespace EFCache.Redis
     {
         private IDatabase _database;
         private readonly ConnectionMultiplexer _redis;
-        private readonly Dictionary<string, HashSet<string>> _entitySetToKey = new Dictionary<string, HashSet<string>>();
         public event EventHandler<RedisConnectionException> OnConnectionError;
+        private const string EntitySetKey = "__EFCache.Redis_EntitySetKey_";
         public RedisCache(string config)
         {
             _redis = ConnectionMultiplexer.Connect(config);
@@ -85,24 +85,19 @@ namespace EFCache.Redis
 
                 try {
                     _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
+                    foreach (var entitySet in entitySets) {
+                        _database.SetAdd(GetEntitySetKey(entitySet), key);
+                    }
                 } catch (RedisConnectionException e) {
                     RaiseConnectionError(e);
-                    return;
                 }
 
-                foreach (var entitySet in entitySets)
-                {
-                    HashSet<string> keys;
-
-                    if (!_entitySetToKey.TryGetValue(entitySet, out keys))
-                    {
-                        keys = new HashSet<string>();
-                        _entitySetToKey[entitySet] = keys;
-                    }
-
-                    keys.Add(key);
-                }
             }
+        }
+
+        private static RedisKey GetEntitySetKey(string entitySet)
+        {
+            return EntitySetKey + entitySet;
         }
 
         private void RaiseConnectionError(RedisConnectionException e)
@@ -135,14 +130,16 @@ namespace EFCache.Redis
             {
                 var itemsToInvalidate = new HashSet<string>();
 
-                foreach (var entitySet in entitySets)
-                {
-                    HashSet<string> keys;
-
-                    if (!_entitySetToKey.TryGetValue(entitySet, out keys)) continue;
-                    itemsToInvalidate.UnionWith(keys);
-
-                    _entitySetToKey.Remove(entitySet);
+                try {
+                    foreach (var entitySet in entitySets) {
+                        var entitySetKey = GetEntitySetKey(entitySet);
+                        var keys = _database.SetMembers(entitySetKey).Select(v => v.ToString());
+                        itemsToInvalidate.UnionWith(keys);
+                        _database.KeyDelete(EntitySetKey);
+                    }
+                } catch (RedisConnectionException e) {
+                    RaiseConnectionError(e);
+                    return;
                 }
 
                 foreach (var key in itemsToInvalidate)
@@ -163,25 +160,18 @@ namespace EFCache.Redis
             key = HashKey(key);
 
             lock (_database) {
-                CacheEntry entry;
                 try {
-                    entry = _database.Get<CacheEntry>(key);
+                    var entry = _database.Get<CacheEntry>(key);
 
                     if (entry == null) return;
 
                     _database.KeyDelete(key);
+
+                    foreach (var set in entry.EntitySets) {
+                        _database.SetRemove(GetEntitySetKey(set), key);
+                    }
                 } catch (RedisConnectionException e) {
                     RaiseConnectionError(e);
-                    return;
-                }
-
-                foreach (var set in entry.EntitySets)
-                {
-                    HashSet<string> keys;
-                    if (_entitySetToKey.TryGetValue(set, out keys))
-                    {
-                        keys.Remove(key);
-                    }
                 }
             }
         }
@@ -196,8 +186,6 @@ namespace EFCache.Redis
                         .Sum(endpoint => _database.Multiplexer.GetServer(endpoint).Keys(pattern: "*").LongCount());
                     return count;
                 }
-
-
             }
         }
         public void Purge()
