@@ -1,4 +1,5 @@
 ﻿using System;
+using StackExchange.Redis;
 using Xunit;
 
 namespace EFCache.Redis.Tests
@@ -167,6 +168,45 @@ namespace EFCache.Redis.Tests
             Assert.Equal(
                 "key",
                 Assert.Throws<ArgumentNullException>(() => new RedisCache("localhost:6379").InvalidateItem(null)).ParamName);
+        }
+
+        [Fact]
+        public void GetItem_does_not_crash_if_cache_is_unavailable()
+        {
+            var cache = new RedisCache("unknown,abortConnect=false");
+            RedisConnectionException exception = null;
+            cache.OnConnectionError += (s, e) => exception = e;
+
+            object item;
+            var success = cache.GetItem("1", out item);
+
+            Assert.False(success);
+            Assert.Null(item);
+            Assert.NotNull(exception);
+        }
+
+        [Fact]
+        public void PutItem_does_not_crash_if_cache_is_unavailable()
+        {
+            var cache = new RedisCache("unknown,abortConnect=false");
+            RedisConnectionException exception = null;
+            cache.OnConnectionError += (s, e) => exception = e;
+
+            cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+
+            Assert.NotNull(exception);
+        }
+
+        [Fact]
+        public void InvalidateItem_does_not_crash_if_cache_is_unavailable()
+        {
+            var cache = new RedisCache("unknown,abortConnect=false");
+            RedisConnectionException exception = null;
+            cache.OnConnectionError += (s, e) => exception = e;
+
+            cache.InvalidateItem("1");
+
+            Assert.NotNull(exception);
         }
     }
 }

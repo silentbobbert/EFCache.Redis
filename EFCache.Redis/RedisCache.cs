@@ -12,6 +12,7 @@ namespace EFCache.Redis
         private IDatabase _database;
         private readonly ConnectionMultiplexer _redis;
         private readonly Dictionary<string, HashSet<string>> _entitySetToKey = new Dictionary<string, HashSet<string>>();
+        public event EventHandler<RedisConnectionException> OnConnectionError;
         public RedisCache(string config)
         {
             _redis = ConnectionMultiplexer.Connect(config);
@@ -31,11 +32,16 @@ namespace EFCache.Redis
             {
                 var now = DateTimeOffset.Now;
 
-                value = _database.Get<CacheEntry>(key);
+                try {
+                    value = _database.Get<CacheEntry>(key);
+                } catch (RedisConnectionException e) {
+                    value = null;
+                    RaiseConnectionError(e);
+                }
 
                 if (value == null) return false;
 
-                var entry = value as CacheEntry;
+                var entry = (CacheEntry)value;
 
                 if (EntryExpired(entry, now))
                 {
@@ -77,7 +83,12 @@ namespace EFCache.Redis
             {
                 var entitySets = dependentEntitySets.ToArray();
 
-                _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
+                try {
+                    _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
+                } catch (RedisConnectionException e) {
+                    RaiseConnectionError(e);
+                    return;
+                }
 
                 foreach (var entitySet in entitySets)
                 {
@@ -94,7 +105,14 @@ namespace EFCache.Redis
             }
         }
 
-        private string HashKey(string key)
+        private void RaiseConnectionError(RedisConnectionException e)
+        {
+            var onConnectionError = OnConnectionError;
+            if (onConnectionError != null)
+                onConnectionError(this, e);
+        }
+
+        private static string HashKey(string key)
         {
             //Looking up large Keys in Redis can be expensive (comparing Large Strings), so if keys are large, hash them, otherwise if keys are short just use as-is
             if (key.Length <= 128) return key;
@@ -144,13 +162,18 @@ namespace EFCache.Redis
 
             key = HashKey(key);
 
-            lock (_database)
-            {
-                var entry = _database.Get<CacheEntry>(key);
+            lock (_database) {
+                CacheEntry entry;
+                try {
+                    entry = _database.Get<CacheEntry>(key);
 
-                if (entry == null) return;
+                    if (entry == null) return;
 
-                _database.KeyDelete(key);
+                    _database.KeyDelete(key);
+                } catch (RedisConnectionException e) {
+                    RaiseConnectionError(e);
+                    return;
+                }
 
                 foreach (var set in entry.EntitySets)
                 {
