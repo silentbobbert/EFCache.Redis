@@ -1,4 +1,5 @@
 ﻿using System;
+using StackExchange.Redis;
 
 namespace EFCache.Redis
 {
@@ -6,5 +7,6 @@ namespace EFCache.Redis
     {
         Int64 Count { get; }
         void Purge();
+        event EventHandler<RedisConnectionException> OnConnectionError;
     }
 }
