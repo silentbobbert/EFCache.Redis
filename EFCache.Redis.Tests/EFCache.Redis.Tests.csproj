@@ -51,6 +51,10 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\packages\EntityFramework.6.1.3\lib\net45\EntityFramework.SqlServer.dll</HintPath>
     </Reference>
+    <Reference Include="StackExchange.Redis, Version=1.0.316.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\packages\StackExchange.Redis.1.0.450\lib\net45\StackExchange.Redis.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.ComponentModel.DataAnnotations" />
     <Reference Include="xunit.abstractions">
@@ -76,8 +80,12 @@
     </Otherwise>
   </Choose>
   <ItemGroup>
+    <Compile Include="IStorageEmulatorManager.cs" />
+    <Compile Include="Properties\Annotations.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RedisCacheTests.cs" />
+    <Compile Include="RedisStorageEmulatorManager.cs" />
+    <Compile Include="StorageEmulatorManager.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\EFCache.Redis\EFCache.Redis.csproj">

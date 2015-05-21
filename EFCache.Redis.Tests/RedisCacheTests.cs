@@ -1,4 +1,6 @@
 ﻿using System;
+using EFCache.Redis.Tests.Annotations;
+using StackExchange.Redis;
 using Xunit;
 
 namespace EFCache.Redis.Tests
@@ -13,8 +15,13 @@ namespace EFCache.Redis.Tests
         public string Message { get; set; }
     }
 
+    [UsedImplicitly]
     public class RedisCacheTests
     {
+        public RedisCacheTests()
+        {
+            RedisStorageEmulatorManager.Instance.StartProcess(false);
+        }
         [Fact]
         public void Item_cached()
         {
@@ -100,7 +107,7 @@ namespace EFCache.Redis.Tests
 
             cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
 
-            Assert.Equal(1, cache.Count);
+            Assert.Equal(3, cache.Count); // "1", "ES1", "ES2"
 
             cache.InvalidateItem("1");
 
@@ -117,7 +124,7 @@ namespace EFCache.Redis.Tests
             cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.Now.AddMinutes(-1));
             cache.PutItem("2", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
 
-            Assert.Equal(2, cache.Count);
+            Assert.Equal(4, cache.Count); // "1", "2", "ES1", "ES2"
 
             cache.Purge();
 
@@ -167,6 +174,45 @@ namespace EFCache.Redis.Tests
             Assert.Equal(
                 "key",
                 Assert.Throws<ArgumentNullException>(() => new RedisCache("localhost:6379").InvalidateItem(null)).ParamName);
+        }
+
+        [Fact]
+        public void GetItem_does_not_crash_if_cache_is_unavailable()
+        {
+            var cache = new RedisCache("unknown,abortConnect=false");
+            RedisConnectionException exception = null;
+            cache.OnConnectionError += (s, e) => exception = e;
+
+            object item;
+            var success = cache.GetItem("1", out item);
+
+            Assert.False(success);
+            Assert.Null(item);
+            Assert.NotNull(exception);
+        }
+
+        [Fact]
+        public void PutItem_does_not_crash_if_cache_is_unavailable()
+        {
+            var cache = new RedisCache("unknown,abortConnect=false");
+            RedisConnectionException exception = null;
+            cache.OnConnectionError += (s, e) => exception = e;
+
+            cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+
+            Assert.NotNull(exception);
+        }
+
+        [Fact]
+        public void InvalidateItem_does_not_crash_if_cache_is_unavailable()
+        {
+            var cache = new RedisCache("unknown,abortConnect=false");
+            RedisConnectionException exception = null;
+            cache.OnConnectionError += (s, e) => exception = e;
+
+            cache.InvalidateItem("1");
+
+            Assert.NotNull(exception);
         }
     }
 }
