@@ -19,3 +19,5 @@ See the package on NuGet:
 https://www.nuget.org/packages/EFCache.Redis
 
 You can add via the package manager in Visual Studio or Package Manager Console: Install-Package EFCache.Redis
+
+Big thanks to Geir Sagberg who has made the package work better at larger scale (especially with Azure Redis), with more concurrent clients and made it fail more gracefully should caching fail. My own use cases had not stretched the package very far.
