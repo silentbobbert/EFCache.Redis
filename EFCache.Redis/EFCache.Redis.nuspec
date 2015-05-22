@@ -2,13 +2,13 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
     <metadata>
         <id>EFCache.Redis</id>
-        <version>2015.3.28.2</version>
+        <version>2015.5.22.1</version>
         <authors>Ian Robertson</authors>
         <projectUrl>https://github.com/silentbobbert/EFCache.Redis</projectUrl>
         <iconUrl>https://avatars0.githubusercontent.com/u/3257988</iconUrl>
         <requireLicenseAcceptance>false</requireLicenseAcceptance>
         <description>Extends EFCache by adding Redis support.</description>
-        <releaseNotes>Pulled merge request to better handle connection exceptions and scaling across multiple clients</releaseNotes>
+        <releaseNotes>Pulled merge request to better handle caching exceptions experienced on large datasets</releaseNotes>
         <tags>EF6 EF6.1.3 Redis Caching L2</tags>
         <dependencies>
             <dependency id="EntityFramework" version="6.1.3" />
