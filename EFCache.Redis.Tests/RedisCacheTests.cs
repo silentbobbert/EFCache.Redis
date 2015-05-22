@@ -7,10 +7,6 @@ namespace EFCache.Redis.Tests
     [Serializable]
     public class TestObject
     {
-        public TestObject()
-        {
-
-        }
         public string Message { get; set; }
     }
 
@@ -174,8 +170,8 @@ namespace EFCache.Redis.Tests
         public void GetItem_does_not_crash_if_cache_is_unavailable()
         {
             var cache = new RedisCache("unknown,abortConnect=false");
-            RedisConnectionException exception = null;
-            cache.OnConnectionError += (s, e) => exception = e;
+            RedisCacheException exception = null;
+            cache.CachingFailed += (s, e) => exception = e;
 
             object item;
             var success = cache.GetItem("1", out item);
@@ -183,30 +179,34 @@ namespace EFCache.Redis.Tests
             Assert.False(success);
             Assert.Null(item);
             Assert.NotNull(exception);
+            Assert.IsType(typeof(RedisConnectionException), exception.InnerException);
+            Assert.Equal(exception.Message, "Caching failed for GetItem");
         }
-
+        
         [Fact]
         public void PutItem_does_not_crash_if_cache_is_unavailable()
         {
             var cache = new RedisCache("unknown,abortConnect=false");
-            RedisConnectionException exception = null;
-            cache.OnConnectionError += (s, e) => exception = e;
+            RedisCacheException exception = null;
+            cache.CachingFailed += (s, e) => exception = e;
 
             cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
 
             Assert.NotNull(exception);
+            Assert.IsType(typeof(RedisConnectionException), exception.InnerException);
         }
 
         [Fact]
         public void InvalidateItem_does_not_crash_if_cache_is_unavailable()
         {
             var cache = new RedisCache("unknown,abortConnect=false");
-            RedisConnectionException exception = null;
-            cache.OnConnectionError += (s, e) => exception = e;
+            RedisCacheException exception = null;
+            cache.CachingFailed += (s, e) => exception = e;
 
             cache.InvalidateItem("1");
 
             Assert.NotNull(exception);
+            Assert.IsType(typeof(RedisConnectionException), exception.InnerException);
         }
     }
 }

@@ -66,6 +66,7 @@
       <DependentUpon>AssemblyInfo.tt</DependentUpon>
     </Compile>
     <Compile Include="RedisCache.cs" />
+    <Compile Include="RedisCacheException.cs" />
     <Compile Include="StackExchangeRedisExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
