@@ -7,6 +7,6 @@ namespace EFCache.Redis
     {
         Int64 Count { get; }
         void Purge();
-        event EventHandler<RedisConnectionException> OnConnectionError;
+        event EventHandler<RedisCacheException> CachingFailed;
     }
 }

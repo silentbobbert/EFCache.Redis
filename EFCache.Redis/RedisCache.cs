@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -11,12 +12,23 @@ namespace EFCache.Redis
     {
         private IDatabase _database;
         private readonly ConnectionMultiplexer _redis;
-        public event EventHandler<RedisConnectionException> OnConnectionError;
         private const string EntitySetKey = "__EFCache.Redis_EntitySetKey_";
+        public event EventHandler<RedisCacheException> CachingFailed;
+
         public RedisCache(string config)
         {
             _redis = ConnectionMultiplexer.Connect(config);
         }
+
+        protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
+        {
+            var handler = CachingFailed;
+            if (handler != null) {
+                var redisCacheException = new RedisCacheException("Caching failed for " + memberName, e);
+                handler(this, redisCacheException);
+            }
+        }
+
         public bool GetItem(string key, out object value)
         {
             _database = _redis.GetDatabase();
@@ -34,9 +46,9 @@ namespace EFCache.Redis
 
                 try {
                     value = _database.Get<CacheEntry>(key);
-                } catch (RedisConnectionException e) {
+                } catch (Exception e) {
                     value = null;
-                    RaiseConnectionError(e);
+                    OnCachingFailed(e);
                 }
 
                 if (value == null) return false;
@@ -88,8 +100,8 @@ namespace EFCache.Redis
                     foreach (var entitySet in entitySets) {
                         _database.SetAdd(GetEntitySetKey(entitySet), key);
                     }
-                } catch (RedisConnectionException e) {
-                    RaiseConnectionError(e);
+                } catch (Exception e) {
+                    OnCachingFailed(e);
                 }
 
             }
@@ -98,13 +110,6 @@ namespace EFCache.Redis
         private static RedisKey GetEntitySetKey(string entitySet)
         {
             return EntitySetKey + entitySet;
-        }
-
-        private void RaiseConnectionError(RedisConnectionException e)
-        {
-            var onConnectionError = OnConnectionError;
-            if (onConnectionError != null)
-                onConnectionError(this, e);
         }
 
         private static string HashKey(string key)
@@ -137,8 +142,8 @@ namespace EFCache.Redis
                         itemsToInvalidate.UnionWith(keys);
                         _database.KeyDelete(EntitySetKey);
                     }
-                } catch (RedisConnectionException e) {
-                    RaiseConnectionError(e);
+                } catch (Exception e) {
+                    OnCachingFailed(e);
                     return;
                 }
 
@@ -170,8 +175,8 @@ namespace EFCache.Redis
                     foreach (var set in entry.EntitySets) {
                         _database.SetRemove(GetEntitySetKey(set), key);
                     }
-                } catch (RedisConnectionException e) {
-                    RaiseConnectionError(e);
+                } catch (Exception e) {
+                    OnCachingFailed(e);
                 }
             }
         }
@@ -200,5 +205,6 @@ namespace EFCache.Redis
             }
 
         }
+
     }
 }
