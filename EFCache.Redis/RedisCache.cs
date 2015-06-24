@@ -10,7 +10,7 @@ namespace EFCache.Redis
 {
     public class RedisCache : IRedisCache
     {
-        private IDatabase _database;
+        private readonly IDatabase _database;
         private readonly ConnectionMultiplexer _redis;
         private const string EntitySetKey = "__EFCache.Redis_EntitySetKey_";
         public event EventHandler<RedisCacheException> CachingFailed;
@@ -18,6 +18,7 @@ namespace EFCache.Redis
         public RedisCache(string config)
         {
             _redis = ConnectionMultiplexer.Connect(config);
+            _database = _redis.GetDatabase();
         }
 
         protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
@@ -30,17 +31,15 @@ namespace EFCache.Redis
 
         public bool GetItem(string key, out object value)
         {
-            _database = _redis.GetDatabase();
-
             if (key == null)
             {
                 throw new ArgumentNullException("key");
             }
 
-            key = HashKey(key);
-
             lock (_database)
             {
+                key = HashKey(key);
+                            
                 var now = DateTimeOffset.Now;
 
                 try {
@@ -77,13 +76,10 @@ namespace EFCache.Redis
 
         public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration, DateTimeOffset absoluteExpiration)
         {
-            _database = _redis.GetDatabase();
             if (key == null)
             {
                 throw new ArgumentNullException("key");
             }
-
-            key = HashKey(key);
 
             if (dependentEntitySets == null)
             {
@@ -92,6 +88,8 @@ namespace EFCache.Redis
 
             lock (_database)
             {
+                key = HashKey(key);
+                
                 var entitySets = dependentEntitySets.ToArray();
 
                 try {
@@ -117,14 +115,13 @@ namespace EFCache.Redis
             if (key.Length <= 128) return key;
             using (var sha = new SHA1CryptoServiceProvider())
             {
-                key = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(key)));
+                key = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(key))).Replace(" ", "$");
                 return key;
             }
         }
 
         public void InvalidateSets(IEnumerable<string> entitySets)
         {
-            _database = _redis.GetDatabase();
             if (entitySets == null)
             {
                 throw new ArgumentNullException("entitySets");
@@ -155,15 +152,13 @@ namespace EFCache.Redis
 
         public void InvalidateItem(string key)
         {
-            _database = _redis.GetDatabase();
             if (key == null)
             {
                 throw new ArgumentNullException("key");
             }
 
-            key = HashKey(key);
-
             lock (_database) {
+                key = HashKey(key);
                 try {
                     var entry = _database.Get<CacheEntry>(key);
 
@@ -183,7 +178,6 @@ namespace EFCache.Redis
         {
             get
             {
-                _database = _redis.GetDatabase();
                 lock (_database)
                 {
                     var count = _database.Multiplexer.GetEndPoints()
@@ -194,7 +188,6 @@ namespace EFCache.Redis
         }
         public void Purge()
         {
-            _database = _redis.GetDatabase();
             lock (_database)
             {
                 foreach (var endPoint in _database.Multiplexer.GetEndPoints())
