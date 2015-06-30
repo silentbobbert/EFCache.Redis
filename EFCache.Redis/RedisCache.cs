@@ -23,7 +23,11 @@ namespace EFCache.Redis
         protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
         {
             var handler = CachingFailed;
-            if (handler == null) return;
+            //don't simply digest, let caller handle exception iif no handler provided
+            if (handler == null)
+            {
+                throw new RedisCacheException("Redis | Caching failed for " + memberName, e);
+            }
             var redisCacheException = new RedisCacheException("Caching failed for " + memberName, e);
             handler(this, redisCacheException);
         }
