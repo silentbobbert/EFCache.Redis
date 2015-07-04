@@ -17,9 +17,7 @@
         </dependencies>
     </metadata>
     <files>
-        <file src="bin\4.5\EFCache.Redis.dll" target="lib\net45\EFCache.Redis.dll" />
-        <file src="bin\4.5\EFCache.Redis.dll.config" target="lib\net45\EFCache.Redis.dll.config" />
-        <file src="bin\4.5.1\EFCache.Redis.dll" target="lib\net451\EFCache.Redis.dll" />
-        <file src="bin\4.5.1\EFCache.Redis.dll.config" target="lib\net451\EFCache.Redis.dll.config" />
+        <file src="Outputs\4.5\EFCache.Redis.dll" target="lib\net45\EFCache.Redis.dll" />
+        <file src="Outputs\4.5.1\EFCache.Redis.dll" target="lib\net451\EFCache.Redis.dll" />
     </files>
 </package>
