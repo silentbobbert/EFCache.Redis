@@ -1,5 +1,4 @@
 ﻿using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 // General Information about an assembly is controlled through the following 
@@ -31,6 +30,6 @@ using System.Runtime.InteropServices;
 //      Build Number
 //      Revision
 //
-[assembly: AssemblyVersion("2015.5.22.1")]
-[assembly: AssemblyFileVersion("2015.5.22.1")]
+[assembly: AssemblyVersion("2015.7.4.1")]
+[assembly: AssemblyFileVersion("2015.7.4.1")]
 
