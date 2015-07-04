@@ -156,3 +156,4 @@ $RECYCLE.BIN/
 .DS_Store
 /Outputs/4.5/EFCache.Redis.dll
 /Outputs/4.5.1/EFCache.Redis.dll
+/EFCache.Redis.Tests/lib/dump.rdb
