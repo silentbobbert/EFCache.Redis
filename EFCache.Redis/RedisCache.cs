@@ -11,7 +11,6 @@ namespace EFCache.Redis
     public class RedisCache : IRedisCache
     {
         //Note- modifying these objects will alter locking scheme
-        private static readonly object _globalLock = new object();//used to put sync locks at global level; only one thread across app will access the code block locked via this
         private readonly object _lock = new object();//used to put instance level lock; only one thread will execute code block per instance
 
         private IDatabase _database;//lock don't work on this because it is being reassigned each time new connection requested; though _redis.GetDatabase() is thread safe and should be used to let mutiplexor manage connection for best performance. Considering these let's avoid putting lock on it
@@ -200,7 +199,7 @@ namespace EFCache.Redis
         public void Purge()
         {
             _database = _redis.GetDatabase();
-            lock (_globalLock)
+            lock (_lock)
             {
                 foreach (var endPoint in _database.Multiplexer.GetEndPoints())
                 {
