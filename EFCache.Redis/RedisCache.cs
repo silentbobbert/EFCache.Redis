@@ -11,7 +11,6 @@ namespace EFCache.Redis
     public class RedisCache : IRedisCache
     {
         //Note- modifying these objects will alter locking scheme
-        private static readonly object _globalLock = new object();//used to put sync locks at global level; only one thread across app will access the code block locked via this
         private readonly object _lock = new object();//used to put instance level lock; only one thread will execute code block per instance
 
         private IDatabase _database;//lock don't work on this because it is being reassigned each time new connection requested; though _redis.GetDatabase() is thread safe and should be used to let mutiplexor manage connection for best performance. Considering these let's avoid putting lock on it
@@ -49,9 +48,12 @@ namespace EFCache.Redis
             
             lock (_lock)
             {
-                try {
+                try
+                {
                     value = _database.Get<CacheEntry>(key);
-                } catch (Exception e) {
+                } 
+                catch (Exception e) 
+                {
                     value = null;
                     OnCachingFailed(e);
                 }
@@ -99,15 +101,17 @@ namespace EFCache.Redis
 
             lock (_lock)
             {
-                try {
+                try 
+                {
                     _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
                     foreach (var entitySet in entitySets) {
                         _database.SetAdd(GetEntitySetKey(entitySet), key);
                     }
-                } catch (Exception e) {
+                } 
+                catch (Exception e) 
+                {
                     OnCachingFailed(e);
                 }
-
             }
         }
 
@@ -139,14 +143,17 @@ namespace EFCache.Redis
 
             lock (_lock)
             {
-                try {
+                try 
+                {
                     foreach (var entitySet in entitySets) {
                         var entitySetKey = GetEntitySetKey(entitySet);
                         var keys = _database.SetMembers(entitySetKey).Select(v => v.ToString());
                         itemsToInvalidate.UnionWith(keys);
                         _database.KeyDelete(EntitySetKey);
                     }
-                } catch (Exception e) {
+                } 
+                catch (Exception e) 
+                {
                     OnCachingFailed(e);
                     return;
                 }
@@ -168,8 +175,10 @@ namespace EFCache.Redis
 
             key = HashKey(key);
 
-            lock (_lock) {
-                try {
+            lock (_lock) 
+            {
+                try 
+                {
                     var entry = _database.Get<CacheEntry>(key);
 
                     if (entry == null) return;
@@ -179,7 +188,9 @@ namespace EFCache.Redis
                     foreach (var set in entry.EntitySets) {
                         _database.SetRemove(GetEntitySetKey(set), key);
                     }
-                } catch (Exception e) {
+                } 
+                catch (Exception e) 
+                {
                     OnCachingFailed(e);
                 }
             }
@@ -200,7 +211,7 @@ namespace EFCache.Redis
         public void Purge()
         {
             _database = _redis.GetDatabase();
-            lock (_globalLock)
+            lock (_lock)
             {
                 foreach (var endPoint in _database.Multiplexer.GetEndPoints())
                 {
