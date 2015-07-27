@@ -10,7 +10,10 @@ namespace EFCache.Redis
 {
     public class RedisCache : IRedisCache
     {
-        private IDatabase _database;
+        //Note- modifying these objects will alter locking scheme
+        private readonly object _lock = new object();//used to put instance level lock; only one thread will execute code block per instance
+
+        private IDatabase _database;//lock don't work on this because it is being reassigned each time new connection requested; though _redis.GetDatabase() is thread safe and should be used to let mutiplexor manage connection for best performance. Considering these let's avoid putting lock on it
         private readonly ConnectionMultiplexer _redis;
         private const string EntitySetKey = "__EFCache.Redis_EntitySetKey_";
         public event EventHandler<RedisCacheException> CachingFailed;
@@ -34,22 +37,23 @@ namespace EFCache.Redis
 
         public bool GetItem(string key, out object value)
         {
-            _database = _redis.GetDatabase();
-
             if (key == null)
             {
                 throw new ArgumentNullException("key");
             }
+            _database = _redis.GetDatabase();//connect only if arguments are valid to optimize resources 
 
             key = HashKey(key);
-
-            lock (_database)
+            var now = DateTimeOffset.Now;//local variables are thread safe should be out of sync lock
+            
+            lock (_lock)
             {
-                var now = DateTimeOffset.Now;
-
-                try {
+                try
+                {
                     value = _database.Get<CacheEntry>(key);
-                } catch (Exception e) {
+                } 
+                catch (Exception e) 
+                {
                     value = null;
                     OnCachingFailed(e);
                 }
@@ -72,8 +76,8 @@ namespace EFCache.Redis
             }
 
             return false;
-
         }
+        
         private static bool EntryExpired(CacheEntry entry, DateTimeOffset now)
         {
             return entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
@@ -81,32 +85,33 @@ namespace EFCache.Redis
 
         public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration, DateTimeOffset absoluteExpiration)
         {
-            _database = _redis.GetDatabase();
             if (key == null)
             {
                 throw new ArgumentNullException("key");
             }
 
-            key = HashKey(key);
-
             if (dependentEntitySets == null)
             {
                 throw new ArgumentNullException("dependentEntitySets");
             }
+            _database = _redis.GetDatabase();
+            
+            key = HashKey(key);
+            var entitySets = dependentEntitySets.ToArray();
 
-            lock (_database)
+            lock (_lock)
             {
-                var entitySets = dependentEntitySets.ToArray();
-
-                try {
+                try 
+                {
                     _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
                     foreach (var entitySet in entitySets) {
                         _database.SetAdd(GetEntitySetKey(entitySet), key);
                     }
-                } catch (Exception e) {
+                } 
+                catch (Exception e) 
+                {
                     OnCachingFailed(e);
                 }
-
             }
         }
 
@@ -128,24 +133,27 @@ namespace EFCache.Redis
 
         public void InvalidateSets(IEnumerable<string> entitySets)
         {
-            _database = _redis.GetDatabase();
             if (entitySets == null)
             {
                 throw new ArgumentNullException("entitySets");
             }
+            _database = _redis.GetDatabase();
+            
+            var itemsToInvalidate = new HashSet<string>();
 
-            lock (_database)
+            lock (_lock)
             {
-                var itemsToInvalidate = new HashSet<string>();
-
-                try {
+                try 
+                {
                     foreach (var entitySet in entitySets) {
                         var entitySetKey = GetEntitySetKey(entitySet);
                         var keys = _database.SetMembers(entitySetKey).Select(v => v.ToString());
                         itemsToInvalidate.UnionWith(keys);
                         _database.KeyDelete(EntitySetKey);
                     }
-                } catch (Exception e) {
+                } 
+                catch (Exception e) 
+                {
                     OnCachingFailed(e);
                     return;
                 }
@@ -159,16 +167,18 @@ namespace EFCache.Redis
 
         public void InvalidateItem(string key)
         {
-            _database = _redis.GetDatabase();
             if (key == null)
             {
                 throw new ArgumentNullException("key");
             }
+            _database = _redis.GetDatabase();
 
             key = HashKey(key);
 
-            lock (_database) {
-                try {
+            lock (_lock) 
+            {
+                try 
+                {
                     var entry = _database.Get<CacheEntry>(key);
 
                     if (entry == null) return;
@@ -178,7 +188,9 @@ namespace EFCache.Redis
                     foreach (var set in entry.EntitySets) {
                         _database.SetRemove(GetEntitySetKey(set), key);
                     }
-                } catch (Exception e) {
+                } 
+                catch (Exception e) 
+                {
                     OnCachingFailed(e);
                 }
             }
@@ -188,7 +200,7 @@ namespace EFCache.Redis
             get
             {
                 _database = _redis.GetDatabase();
-                lock (_database)
+                lock (_lock)
                 {
                     var count = _database.Multiplexer.GetEndPoints()
                         .Sum(endpoint => _database.Multiplexer.GetServer(endpoint).Keys(pattern: "*").LongCount());
@@ -199,7 +211,7 @@ namespace EFCache.Redis
         public void Purge()
         {
             _database = _redis.GetDatabase();
-            lock (_database)
+            lock (_lock)
             {
                 foreach (var endPoint in _database.Multiplexer.GetEndPoints())
                 {
