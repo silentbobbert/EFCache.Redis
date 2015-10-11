@@ -1,4 +1,4 @@
-﻿using StackExchange.Redis;
+using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -46,33 +46,30 @@ namespace EFCache.Redis
             key = HashKey(key);
             var now = DateTimeOffset.Now;//local variables are thread safe should be out of sync lock
             
-            lock (_lock)
+            try
             {
-                try
-                {
-                    value = _database.Get<CacheEntry>(key);
-                } 
-                catch (Exception e) 
-                {
-                    value = null;
-                    OnCachingFailed(e);
-                }
+                value = _database.Get<CacheEntry>(key);
+            } 
+            catch (Exception e) 
+            {
+                value = null;
+                OnCachingFailed(e);
+            }
 
-                if (value == null) return false;
+            if (value == null) return false;
 
-                var entry = (CacheEntry)value;
+            var entry = (CacheEntry)value;
 
-                if (EntryExpired(entry, now))
-                {
-                    InvalidateItem(key);
-                    value = null;
-                }
-                else
-                {
-                    entry.LastAccess = now;
-                    value = entry.Value;
-                    return true;
-                }
+            if (EntryExpired(entry, now))
+            {
+                InvalidateItem(key);
+                value = null;
+            }
+            else
+            {
+                entry.LastAccess = now;
+                value = entry.Value;
+                return true;
             }
 
             return false;
@@ -103,10 +100,12 @@ namespace EFCache.Redis
             {
                 try 
                 {
-                    _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
-                    foreach (var entitySet in entitySets) {
-                        _database.SetAdd(GetEntitySetKey(entitySet), key);
+                    foreach (var entitySet in entitySets)
+                    {
+                        _database.SetAdd(GetEntitySetKey(entitySet), key, CommandFlags.FireAndForget);
                     }
+
+                    _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
                 } 
                 catch (Exception e) 
                 {
@@ -149,7 +148,7 @@ namespace EFCache.Redis
                         var entitySetKey = GetEntitySetKey(entitySet);
                         var keys = _database.SetMembers(entitySetKey).Select(v => v.ToString());
                         itemsToInvalidate.UnionWith(keys);
-                        _database.KeyDelete(EntitySetKey);
+                        _database.KeyDelete(EntitySetKey, CommandFlags.FireAndForget);
                     }
                 } 
                 catch (Exception e) 
@@ -183,10 +182,10 @@ namespace EFCache.Redis
 
                     if (entry == null) return;
 
-                    _database.KeyDelete(key);
+                    _database.KeyDelete(key, CommandFlags.FireAndForget);
 
                     foreach (var set in entry.EntitySets) {
-                        _database.SetRemove(GetEntitySetKey(set), key);
+                        _database.SetRemove(GetEntitySetKey(set), key, CommandFlags.FireAndForget);
                     }
                 } 
                 catch (Exception e) 
