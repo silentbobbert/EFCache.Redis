@@ -18,9 +18,11 @@ namespace EFCache.Redis
         private const string EntitySetKey = "__EFCache.Redis_EntitySetKey_";
         public event EventHandler<RedisCacheException> CachingFailed;
 
-        public RedisCache(string config)
+        public RedisCache(string config) : this(ConfigurationOptions.Parse(config)) {   }
+
+        public RedisCache(ConfigurationOptions options)
         {
-            _redis = ConnectionMultiplexer.Connect(config);
+            _redis = ConnectionMultiplexer.Connect(options);
         }
 
         protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
