@@ -138,7 +138,7 @@ namespace EFCache.Redis.Tests
 
             Assert.Equal(
                 "key",
-                Assert.Throws<ArgumentNullException>(() => new RedisCache("localhost:6379").GetItem(null, out item)).ParamName);
+                Assert.Throws<ArgumentOutOfRangeException>(() => new RedisCache("localhost:6379").GetItem(null, out item)).ParamName);
         }
 
         [Fact]
@@ -146,7 +146,7 @@ namespace EFCache.Redis.Tests
         {
             Assert.Equal(
                 "key",
-                Assert.Throws<ArgumentNullException>(()
+                Assert.Throws<ArgumentOutOfRangeException>(()
                     => new RedisCache("localhost:6379").PutItem(null, 42, new string[0], TimeSpan.Zero, DateTimeOffset.Now))
                     .ParamName);
 
@@ -169,7 +169,7 @@ namespace EFCache.Redis.Tests
         {
             Assert.Equal(
                 "key",
-                Assert.Throws<ArgumentNullException>(() => new RedisCache("localhost:6379").InvalidateItem(null)).ParamName);
+                Assert.Throws<ArgumentOutOfRangeException>(() => new RedisCache("localhost:6379").InvalidateItem(null)).ParamName);
         }
 
         [Fact]

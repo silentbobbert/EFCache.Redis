@@ -2,13 +2,13 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
     <metadata>
         <id>EFCache.Redis</id>
-        <version>2015.12.17.1</version>
+        <version>2016.5.2.1</version>
         <authors>Ian Robertson</authors>
         <projectUrl>https://github.com/silentbobbert/EFCache.Redis</projectUrl>
         <iconUrl>https://avatars0.githubusercontent.com/u/3257988</iconUrl>
         <requireLicenseAcceptance>false</requireLicenseAcceptance>
         <description>Extends EFCache by adding Redis support.</description>
-        <releaseNotes>Added ability to pass in ConfigurationOptions object to constructor to allow consumer to build object programatically</releaseNotes>
+        <releaseNotes>Added ability share Redis database with other applications who might clash on key namespace</releaseNotes>
         <tags>EF6 EF6.1.3 Redis Caching L2</tags>
         <dependencies>
             <dependency id="EntityFramework" version="6.1.3" />
@@ -17,10 +17,15 @@
         </dependencies>
     </metadata>
     <files>
-        <file src="bin\4.6\EFCache.Redis.dll" target="lib\net46\EFCache.Redis.dll" />
-        <file src="bin\4.5.2\EFCache.Redis.dll" target="lib\net452\EFCache.Redis.dll" />
         <file src="bin\4.5\EFCache.Redis.dll" target="lib\net45\EFCache.Redis.dll" />
+        <file src="bin\4.5\EFCache.Redis.dll.config" target="lib\net45\EFCache.Redis.dll.config" />
         <file src="bin\4.5.1\EFCache.Redis.dll" target="lib\net451\EFCache.Redis.dll" />
-		<file src="bin\4.6.1\EFCache.Redis.dll" target="lib\net461\EFCache.Redis.dll" />
+        <file src="bin\4.5.1\EFCache.Redis.dll.config" target="lib\net451\EFCache.Redis.dll.config" />
+        <file src="bin\4.5.2\EFCache.Redis.dll" target="lib\net452\EFCache.Redis.dll" />
+        <file src="bin\4.5.2\EFCache.Redis.dll.config" target="lib\net452\EFCache.Redis.dll.config" />
+        <file src="bin\4.6\EFCache.Redis.dll" target="lib\net46\EFCache.Redis.dll" />
+        <file src="bin\4.6\EFCache.Redis.dll.config" target="lib\net46\EFCache.Redis.dll.config" />
+        <file src="bin\4.6.1\EFCache.Redis.dll" target="lib\net461\EFCache.Redis.dll" />
+        <file src="bin\4.6.1\EFCache.Redis.dll.config" target="lib\net461\EFCache.Redis.dll.config" />
     </files>
 </package>
