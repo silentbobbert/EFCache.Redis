@@ -28,7 +28,13 @@ namespace EFCache.Redis
         
         public RedisCache(string config, string cacheIdentifier)
         {
-            _redis = ConnectionMultiplexer.Connect(config);
+            _redis = ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(config));
+            _cacheIdentifier = cacheIdentifier;
+        }
+        
+        public RedisCache(ConfigurationOptions options, string cacheIdentifier)
+        {
+            _redis = ConnectionMultiplexer.Connect(options);
             _cacheIdentifier = cacheIdentifier;
         }
 
