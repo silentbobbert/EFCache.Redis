@@ -15,7 +15,7 @@ namespace EFCache.Redis
 
         private IDatabase _database;//lock don't work on this because it is being reassigned each time new connection requested; though _redis.GetDatabase() is thread safe and should be used to let mutiplexor manage connection for best performance. Considering these let's avoid putting lock on it
         private readonly ConnectionMultiplexer _redis;
-        private const string EntitySetKey = "__EFCache.Redis_EntitySetKey_";
+        private readonly string _cacheIdentifier;
         public event EventHandler<RedisCacheException> CachingFailed;
 
         public RedisCache(string config) : this(ConfigurationOptions.Parse(config)) {   }
@@ -23,6 +23,19 @@ namespace EFCache.Redis
         public RedisCache(ConfigurationOptions options)
         {
             _redis = ConnectionMultiplexer.Connect(options);
+            _cacheIdentifier = "__EFCache.Redis_EntitySetKey_"; 
+        }
+        
+        public RedisCache(string config, string cacheIdentifier)
+        {
+            _redis = ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(config));
+            _cacheIdentifier = cacheIdentifier;
+        }
+        
+        public RedisCache(ConfigurationOptions options, string cacheIdentifier)
+        {
+            _redis = ConnectionMultiplexer.Connect(options);
+            _cacheIdentifier = cacheIdentifier;
         }
 
         protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
@@ -104,7 +117,7 @@ namespace EFCache.Redis
                 {
                     foreach (var entitySet in entitySets)
                     {
-                        _database.SetAdd(GetEntitySetKey(entitySet), key, CommandFlags.FireAndForget);
+                        _database.SetAdd(AddCacheQualifier(entitySet), key, CommandFlags.FireAndForget);
                     }
 
                     _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
@@ -116,9 +129,9 @@ namespace EFCache.Redis
             }
         }
 
-        private static RedisKey GetEntitySetKey(string entitySet)
+        private RedisKey AddCacheQualifier(string entitySet)
         {
-            return EntitySetKey + entitySet;
+            return string.Concat(_cacheIdentifier, ".", entitySet);
         }
 
         private static string HashKey(string key)
@@ -147,10 +160,10 @@ namespace EFCache.Redis
                 try 
                 {
                     foreach (var entitySet in entitySets) {
-                        var entitySetKey = GetEntitySetKey(entitySet);
+                        var entitySetKey = AddCacheQualifier(entitySet);
                         var keys = _database.SetMembers(entitySetKey).Select(v => v.ToString());
                         itemsToInvalidate.UnionWith(keys);
-                        _database.KeyDelete(EntitySetKey, CommandFlags.FireAndForget);
+                        _database.KeyDelete(entitySetKey, CommandFlags.FireAndForget);
                     }
                 } 
                 catch (Exception e) 
@@ -187,7 +200,7 @@ namespace EFCache.Redis
                     _database.KeyDelete(key, CommandFlags.FireAndForget);
 
                     foreach (var set in entry.EntitySets) {
-                        _database.SetRemove(GetEntitySetKey(set), key, CommandFlags.FireAndForget);
+                        _database.SetRemove(AddCacheQualifier(set), key, CommandFlags.FireAndForget);
                     }
                 } 
                 catch (Exception e) 
