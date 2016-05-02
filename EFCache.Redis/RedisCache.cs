@@ -8,6 +8,7 @@ using System.Text;
 
 namespace EFCache.Redis
 {
+    // ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
     public class RedisCache : IRedisCache
     {
         //Note- modifying these objects will alter locking scheme
@@ -20,6 +21,7 @@ namespace EFCache.Redis
 
         public RedisCache(string config) : this(ConfigurationOptions.Parse(config)) {   }
 
+        // ReSharper disable once MemberCanBePrivate.Global
         public RedisCache(ConfigurationOptions options)
         {
             _redis = ConnectionMultiplexer.Connect(options);
@@ -52,10 +54,7 @@ namespace EFCache.Redis
 
         public bool GetItem(string key, out object value)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException("key");
-            }
+            key.GuardAgainstNullOrEmpty(nameof(key));
             _database = _redis.GetDatabase();//connect only if arguments are valid to optimize resources 
 
             key = HashKey(key);
@@ -97,18 +96,14 @@ namespace EFCache.Redis
 
         public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration, DateTimeOffset absoluteExpiration)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException("key");
-            }
-
-            if (dependentEntitySets == null)
-            {
-                throw new ArgumentNullException("dependentEntitySets");
-            }
+            key.GuardAgainstNullOrEmpty(nameof(key));
+            // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
+            dependentEntitySets.GuardAgainstNull(nameof(dependentEntitySets));
+           
             _database = _redis.GetDatabase();
             
             key = HashKey(key);
+            // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
             var entitySets = dependentEntitySets.ToArray();
 
             lock (_lock)
@@ -147,10 +142,9 @@ namespace EFCache.Redis
 
         public void InvalidateSets(IEnumerable<string> entitySets)
         {
-            if (entitySets == null)
-            {
-                throw new ArgumentNullException("entitySets");
-            }
+            // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
+            entitySets.GuardAgainstNull(nameof(entitySets));
+            
             _database = _redis.GetDatabase();
             
             var itemsToInvalidate = new HashSet<string>();
@@ -159,6 +153,7 @@ namespace EFCache.Redis
             {
                 try 
                 {
+                    // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
                     foreach (var entitySet in entitySets) {
                         var entitySetKey = AddCacheQualifier(entitySet);
                         var keys = _database.SetMembers(entitySetKey).Select(v => v.ToString());
@@ -181,10 +176,8 @@ namespace EFCache.Redis
 
         public void InvalidateItem(string key)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException("key");
-            }
+            key.GuardAgainstNullOrEmpty(nameof(key));
+            
             _database = _redis.GetDatabase();
 
             key = HashKey(key);
@@ -209,6 +202,7 @@ namespace EFCache.Redis
                 }
             }
         }
+        // ReSharper disable once BuiltInTypeReferenceStyle
         public Int64 Count
         {
             get
