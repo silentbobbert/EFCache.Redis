@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 using EFCache.Redis.Tests.Annotations;
 using StackExchange.Redis;
 using Xunit;
@@ -59,6 +60,27 @@ namespace EFCache.Redis.Tests
             object fromCache;
             Assert.False(cache.GetItem("key", out fromCache));
             Assert.Null(fromCache);
+        }
+
+        [Fact]
+        public void Item_still_returned_after_sliding_expiration_period()
+        {
+            var cache = new RedisCache("localhost:6379");
+            var item = new TestObject { Message = "OK" };
+
+            // Cache the item with a sliding expiration of 10 seconds
+            cache.PutItem("key", item, new string[0], TimeSpan.FromSeconds(10), DateTimeOffset.MaxValue);
+
+            object fromCache = null;
+            // In a loop of 20 seconds retrieve the item every 5 second seconds.
+            for (var i = 0; i < 4; i++)
+            {
+                Thread.Sleep(5000); // Wait 5 seconds
+                // Retrieve item again. This should update LastAccess and as such keep the item 'alive'
+                // Break when item cannot be retrieved
+                Assert.True(cache.GetItem("key", out fromCache));
+            }
+            Assert.NotNull(fromCache);
         }
 
         [Fact]
