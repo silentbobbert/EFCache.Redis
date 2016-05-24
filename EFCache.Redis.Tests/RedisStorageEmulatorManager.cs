@@ -8,9 +8,7 @@ namespace EFCache.Redis.Tests
     {
         private static readonly Lazy<RedisStorageEmulatorManager>  Lazy = new Lazy<RedisStorageEmulatorManager>();
 
-        public static RedisStorageEmulatorManager Instance {
-            get { return Lazy.Value; }
-        }
+        public static RedisStorageEmulatorManager Instance => Lazy.Value;
 
         public RedisStorageEmulatorManager() : base("redis-server", new ProcessStartInfo
         {

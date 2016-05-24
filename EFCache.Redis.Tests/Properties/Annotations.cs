@@ -67,8 +67,8 @@ namespace EFCache.Redis.Tests.Annotations
       FormatParameterName = formatParameterName;
     }
 
-    public string FormatParameterName { get; private set; }
-  }
+    public string FormatParameterName { get; }
+    }
 
   /// <summary>
   /// Indicates that the function argument should be string literal and match one
@@ -129,8 +129,8 @@ namespace EFCache.Redis.Tests.Annotations
       ParameterName = parameterName;
     }
 
-    public string ParameterName { get; private set; }
-  }
+    public string ParameterName { get; }
+    }
 
   /// <summary>
   /// Describes dependency between method input and output
@@ -186,9 +186,9 @@ namespace EFCache.Redis.Tests.Annotations
       ForceFullStates = forceFullStates;
     }
 
-    public string Contract { get; private set; }
-    public bool ForceFullStates { get; private set; }
-  }
+    public string Contract { get; }
+        public bool ForceFullStates { get; }
+    }
 
   /// <summary>
   /// Indicates that marked element should be localized or not
@@ -208,8 +208,8 @@ namespace EFCache.Redis.Tests.Annotations
       Required = required;
     }
 
-    public bool Required { get; private set; }
-  }
+    public bool Required { get; }
+    }
 
   /// <summary>
   /// Indicates that the value of the marked type (or its derivatives)
@@ -254,8 +254,8 @@ namespace EFCache.Redis.Tests.Annotations
       BaseType = baseType;
     }
 
-    [NotNull] public Type BaseType { get; private set; }
-  }
+    [NotNull] public Type BaseType { get; }
+    }
 
   /// <summary>
   /// Indicates that the marked symbol is used implicitly
@@ -281,9 +281,9 @@ namespace EFCache.Redis.Tests.Annotations
       TargetFlags = targetFlags;
     }
 
-    public ImplicitUseKindFlags UseKindFlags { get; private set; }
-    public ImplicitUseTargetFlags TargetFlags { get; private set; }
-  }
+    public ImplicitUseKindFlags UseKindFlags { get; }
+        public ImplicitUseTargetFlags TargetFlags { get; }
+    }
 
   /// <summary>
   /// Should be used on attributes and causes ReSharper
@@ -309,9 +309,9 @@ namespace EFCache.Redis.Tests.Annotations
       TargetFlags = targetFlags;
     }
 
-    [UsedImplicitly] public ImplicitUseKindFlags UseKindFlags { get; private set; }
-    [UsedImplicitly] public ImplicitUseTargetFlags TargetFlags { get; private set; }
-  }
+    [UsedImplicitly] public ImplicitUseKindFlags UseKindFlags { get; }
+        [UsedImplicitly] public ImplicitUseTargetFlags TargetFlags { get; }
+    }
   
   [Flags]
   public enum ImplicitUseKindFlags
@@ -359,8 +359,8 @@ namespace EFCache.Redis.Tests.Annotations
       Comment = comment;
     }
 
-    [NotNull] public string Comment { get; private set; }
-  }
+    [NotNull] public string Comment { get; }
+    }
 
   /// <summary>
   /// Tells code analysis engine if the parameter is completely handled
@@ -400,8 +400,8 @@ namespace EFCache.Redis.Tests.Annotations
       BasePath = basePath;
     }
 
-    [NotNull] public string BasePath { get; private set; }
-  }
+    [NotNull] public string BasePath { get; }
+    }
 
   // ASP.NET MVC attributes
 
@@ -456,8 +456,8 @@ namespace EFCache.Redis.Tests.Annotations
       AnonymousProperty = anonymousProperty;
     }
 
-    [NotNull] public string AnonymousProperty { get; private set; }
-  }
+    [NotNull] public string AnonymousProperty { get; }
+    }
 
   /// <summary>
   /// ASP.NET MVC attribute. Indicates that a parameter is an MVC area.
@@ -473,8 +473,8 @@ namespace EFCache.Redis.Tests.Annotations
       AnonymousProperty = anonymousProperty;
     }
 
-    [NotNull] public string AnonymousProperty { get; private set; }
-  }
+    [NotNull] public string AnonymousProperty { get; }
+    }
 
   /// <summary>
   /// ASP.NET MVC attribute. If applied to a parameter, indicates that
@@ -492,8 +492,8 @@ namespace EFCache.Redis.Tests.Annotations
       AnonymousProperty = anonymousProperty;
     }
 
-    [NotNull] public string AnonymousProperty { get; private set; }
-  }
+    [NotNull] public string AnonymousProperty { get; }
+    }
 
   /// <summary>
   /// ASP.NET MVC attribute. Indicates that a parameter is an MVC Master.
@@ -586,8 +586,8 @@ namespace EFCache.Redis.Tests.Annotations
       Name = name;
     }
 
-    [NotNull] public string Name { get; private set; }
-  }
+    [NotNull] public string Name { get; }
+    }
 
   [AttributeUsage(
     AttributeTargets.Parameter | AttributeTargets.Field |
@@ -599,8 +599,8 @@ namespace EFCache.Redis.Tests.Annotations
       Name = name;
     }
 
-    [NotNull] public string Name { get; private set; }
-  }
+    [NotNull] public string Name { get; }
+    }
 
   // Razor attributes
 
