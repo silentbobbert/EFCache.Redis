@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 
 namespace EFCache.Redis
 {
@@ -18,6 +19,8 @@ namespace EFCache.Redis
         private readonly ConnectionMultiplexer _redis;
         private readonly string _cacheIdentifier;
         public event EventHandler<RedisCacheException> CachingFailed;
+
+        public int LockWaitTimeout { get; set; } = 1000;
 
         public RedisCache(string config) : this(ConfigurationOptions.Parse(config)) {   }
 
@@ -84,8 +87,10 @@ namespace EFCache.Redis
                 entry.LastAccess = now;
                 value = entry.Value;
                 // Update the entry in Redis to save the new LastAccess value.
-                lock (_lock)
-                {
+
+                var handler = CachingFailed;
+                if (Monitor.TryEnter(_lock, LockWaitTimeout))
+                { 
                     try
                     {
                         _database.Set(key, entry);
@@ -95,6 +100,14 @@ namespace EFCache.Redis
                         // Eventhough an error has occured, we will return true, because the retrieval of the entity was a success
                         OnCachingFailed(e);
                     }
+                    finally
+                    {
+                        Monitor.Exit(_lock);
+                    }
+                }
+                else if (handler != null)
+                {
+                    OnCachingFailed(new LockTimeoutException($"Timeout of {LockWaitTimeout}ms while waiting for lock (ThreadId: {Thread.CurrentThread.ManagedThreadId})") { ThreadId = Thread.CurrentThread.ManagedThreadId });
                 }
                 return true;
             }
@@ -116,7 +129,8 @@ namespace EFCache.Redis
             // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
             var entitySets = dependentEntitySets.ToArray();
 
-            lock (_lock)
+            var handler = CachingFailed;
+            if (Monitor.TryEnter(_lock, LockWaitTimeout))
             {
                 try 
                 {
@@ -131,7 +145,16 @@ namespace EFCache.Redis
                 {
                     OnCachingFailed(e);
                 }
+                finally
+                {
+                    Monitor.Exit(_lock);
+                }
             }
+            else if (handler != null)
+            {
+                OnCachingFailed(new LockTimeoutException($"Timeout of {LockWaitTimeout}ms while waiting for lock (ThreadId: {Thread.CurrentThread.ManagedThreadId})") { ThreadId = Thread.CurrentThread.ManagedThreadId });
+            }
+        
         }
 
         private RedisKey AddCacheQualifier(string entitySet) => string.Concat(_cacheIdentifier, ".", entitySet);

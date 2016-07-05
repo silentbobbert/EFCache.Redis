@@ -3,6 +3,9 @@ using System.Threading;
 using EFCache.Redis.Tests.Annotations;
 using StackExchange.Redis;
 using Xunit;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace EFCache.Redis.Tests
 {
@@ -130,6 +133,82 @@ namespace EFCache.Redis.Tests
             cache.InvalidateItem("1");
 
             Assert.Equal(0, cache.Count);
+        }
+
+        [Fact]
+        public async Task ThreadingBlockTest()
+        {
+            var cache = new RedisCache("localhost:6379,allowAdmin=true");
+
+            Exception exception = null;
+
+            cache.LockWaitTimeout = 250;
+
+            cache.CachingFailed += (sender, e) =>
+            {
+                if (e?.InnerException is LockTimeoutException)
+                    exception = e.InnerException;
+            };
+            cache.Purge();
+
+            Assert.Equal(0, cache.Count);
+
+            var crazyLargeResultSet = Enumerable.Range(1, 100000).Select(a => $"String {a}").ToArray();
+
+            cache.PutItem("1", crazyLargeResultSet, new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+            cache.PutItem("2", crazyLargeResultSet, new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+            cache.PutItem("3", crazyLargeResultSet, new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+
+            //            Assert.Equal(3, cache.Count); // "1", "ES1", "ES2"
+
+
+            var tasks = new Task[10];
+
+            for (var i = 0; i < 10; i++)
+            {
+                var icopy = i;
+                tasks[i] = Task.Run(() =>
+                {
+                    var watch = new Stopwatch();
+                    watch.Start();
+                    Debug.WriteLine($"Invalidate {icopy} start");
+                    if (i == 9)
+                    cache.InvalidateItem("1");
+                    else
+                    {
+                        object val;
+                        cache.GetItem("1", out val);
+                    }
+                    watch.Stop();
+                    Debug.WriteLine($"Invalidate {icopy} complete after {watch.ElapsedMilliseconds}");
+                });
+            }
+
+
+            var threadGet = Task.Run(() =>
+            {
+                Debug.WriteLine($"Get start");
+                var watch = new Stopwatch();
+                watch.Start();
+                object value;
+                cache.GetItem("1", out value);
+                watch.Stop();
+                Debug.WriteLine($"Get complete after {watch.ElapsedMilliseconds}");
+            });
+
+
+            await threadGet;
+            await Task.WhenAll(tasks);
+
+            Assert.NotNull(exception);
+            Assert.IsType<LockTimeoutException>(exception);
+
+
+        }
+
+        private void Cache_CachingFailed(object sender, RedisCacheException e)
+        {
+            throw new NotImplementedException();
         }
 
         [Fact]
