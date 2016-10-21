@@ -2,6 +2,7 @@ using System;
 
 namespace EFCache.Redis
 {
+    [Serializable]
     public class RedisCacheException : Exception
     {
         public RedisCacheException()
