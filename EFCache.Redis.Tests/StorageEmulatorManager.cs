@@ -18,15 +18,9 @@ namespace EFCache.Redis.Tests
             _processName = processName;
         }
 
-        public Process GetProcess()
-        {
-            return Process.GetProcessesByName(_processName).FirstOrDefault();
-        }
+        public Process GetProcess() => Process.GetProcessesByName(_processName).FirstOrDefault();
 
-        public bool IsProcessStarted()
-        {
-            return GetProcess() != null;
-        }
+        public bool IsProcessStarted() => GetProcess() != null;
 
         public void StartProcess(bool waitForExit)
         {
@@ -41,10 +35,7 @@ namespace EFCache.Redis.Tests
         public void StopProcess()
         {
             var process = GetProcess();
-            if (process != null)
-            {
-                process.Kill();
-            }
+            process?.Kill();
         }
         public static string AssemblyDirectory
         {

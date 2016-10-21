@@ -83,16 +83,26 @@ namespace EFCache.Redis
             {
                 entry.LastAccess = now;
                 value = entry.Value;
+                // Update the entry in Redis to save the new LastAccess value.
+                lock (_lock)
+                {
+                    try
+                    {
+                        _database.Set(key, entry);
+                    }
+                    catch (Exception e)
+                    {
+                        // Eventhough an error has occured, we will return true, because the retrieval of the entity was a success
+                        OnCachingFailed(e);
+                    }
+                }
                 return true;
             }
 
             return false;
         }
-        
-        private static bool EntryExpired(CacheEntry entry, DateTimeOffset now)
-        {
-            return entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
-        }
+
+        private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) => entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
 
         public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration, DateTimeOffset absoluteExpiration)
         {
@@ -124,10 +134,7 @@ namespace EFCache.Redis
             }
         }
 
-        private RedisKey AddCacheQualifier(string entitySet)
-        {
-            return string.Concat(_cacheIdentifier, ".", entitySet);
-        }
+        private RedisKey AddCacheQualifier(string entitySet) => string.Concat(_cacheIdentifier, ".", entitySet);
 
         private static string HashKey(string key)
         {
