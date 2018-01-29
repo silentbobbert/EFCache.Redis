@@ -11,6 +11,8 @@ namespace EFCache.Redis
     // ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
     public class RedisCache : IRedisCache
     {
+        private const string DefaultCacheIdentifier = "__EFCache.Redis_EntitySetKey_";
+
         //Note- modifying these objects will alter locking scheme
         private readonly object _lock = new object();//used to put instance level lock; only one thread will execute code block per instance
 
@@ -25,9 +27,15 @@ namespace EFCache.Redis
         public RedisCache(ConfigurationOptions options)
         {
             _redis = ConnectionMultiplexer.Connect(options);
-            _cacheIdentifier = "__EFCache.Redis_EntitySetKey_"; 
+            _cacheIdentifier = DefaultCacheIdentifier; 
         }
-        
+
+        public RedisCache(ConnectionMultiplexer connection, string cacheIdentifier = DefaultCacheIdentifier)
+        {
+            _redis = connection;
+            _cacheIdentifier = cacheIdentifier;
+        }
+
         public RedisCache(string config, string cacheIdentifier)
         {
             _redis = ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(config));
