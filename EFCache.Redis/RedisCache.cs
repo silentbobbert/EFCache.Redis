@@ -30,15 +30,21 @@ namespace EFCache.Redis
             _cacheIdentifier = DefaultCacheIdentifier; 
         }
 
-        public RedisCache(ConnectionMultiplexer connection, string cacheIdentifier = DefaultCacheIdentifier)
+        public RedisCache(ConnectionMultiplexer connection, string cacheIdentifier)
         {
             _redis = connection;
             _cacheIdentifier = cacheIdentifier;
         }
 
+        public RedisCache(ConnectionMultiplexer connection)
+        {
+            _redis = connection;
+            _cacheIdentifier = DefaultCacheIdentifier;
+        }
+
         public RedisCache(string config, string cacheIdentifier)
         {
-            _redis = ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(config));
+            _redis = ConnectionMultiplexer.Connect(config);
             _cacheIdentifier = cacheIdentifier;
         }
         
@@ -63,7 +69,7 @@ namespace EFCache.Redis
         public bool GetItem(string key, out object value)
         {
             key.GuardAgainstNullOrEmpty(nameof(key));
-            _database = _redis.GetDatabase();//connect only if arguments are valid to optimize resources 
+            _database = _redis.GetDatabase(); //connect only if arguments are valid to optimize resources 
 
             key = HashKey(key);
             var now = DateTimeOffset.Now;//local variables are thread safe should be out of sync lock
