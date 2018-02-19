@@ -11,6 +11,8 @@ namespace EFCache.Redis
     // ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
     public class RedisCache : IRedisCache
     {
+        private const string DefaultCacheIdentifier = "__EFCache.Redis_EntitySetKey_";
+
         //Note- modifying these objects will alter locking scheme
         private readonly object _lock = new object();//used to put instance level lock; only one thread will execute code block per instance
 
@@ -25,12 +27,24 @@ namespace EFCache.Redis
         public RedisCache(ConfigurationOptions options)
         {
             _redis = ConnectionMultiplexer.Connect(options);
-            _cacheIdentifier = "__EFCache.Redis_EntitySetKey_"; 
+            _cacheIdentifier = DefaultCacheIdentifier; 
         }
-        
+
+        public RedisCache(ConnectionMultiplexer connection, string cacheIdentifier)
+        {
+            _redis = connection;
+            _cacheIdentifier = cacheIdentifier;
+        }
+
+        public RedisCache(ConnectionMultiplexer connection)
+        {
+            _redis = connection;
+            _cacheIdentifier = DefaultCacheIdentifier;
+        }
+
         public RedisCache(string config, string cacheIdentifier)
         {
-            _redis = ConnectionMultiplexer.Connect(ConfigurationOptions.Parse(config));
+            _redis = ConnectionMultiplexer.Connect(config);
             _cacheIdentifier = cacheIdentifier;
         }
         
@@ -55,7 +69,7 @@ namespace EFCache.Redis
         public bool GetItem(string key, out object value)
         {
             key.GuardAgainstNullOrEmpty(nameof(key));
-            _database = _redis.GetDatabase();//connect only if arguments are valid to optimize resources 
+            _database = _redis.GetDatabase(); //connect only if arguments are valid to optimize resources 
 
             key = HashKey(key);
             var now = DateTimeOffset.Now;//local variables are thread safe should be out of sync lock
