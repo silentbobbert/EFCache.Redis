@@ -1,4 +1,3 @@
-using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
@@ -7,10 +6,10 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using StackExchange.Redis;
 
 namespace EFCache.Redis
 {
-	// ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
 	public class RedisCache : IRedisCache
 	{
 		private const string DefaultCacheIdentifier = "__EFCache.Redis_EntitySetKey_";
@@ -20,15 +19,20 @@ namespace EFCache.Redis
 		private const string MissesIdentifier = "misses";
 		private const string InvalidationsIdentifier = "invalidations";
 
-		//Note- modifying these objects will alter locking scheme
-		private readonly object _lock = new object();//used to put instance level lock; only one thread will execute code block per instance
+		private static ConfigurationOptions _configurationOptions;
+		private static string _redisConfig;
+		private static ConnectionMultiplexer _redis;
 
-		private IDatabase _database;//lock don't work on this because it is being reassigned each time new connection requested; though _redis.GetDatabase() is thread safe and should be used to let mutiplexor manage connection for best performance. Considering these let's avoid putting lock on it
-		private readonly ConnectionMultiplexer _redis;
+		private static readonly Lazy<ConnectionMultiplexer> LazyRedis = _redis != null
+			? new Lazy<ConnectionMultiplexer>(() => _redis)
+			: new Lazy<ConnectionMultiplexer>(() => _redisConfig != null
+				? ConnectionMultiplexer.Connect(_redisConfig)
+				: ConnectionMultiplexer.Connect(_configurationOptions));
+
 		private readonly string _cacheIdentifier;
 		private readonly string _statsIdentifier;
 
-		public event EventHandler<RedisCacheException> CachingFailed;
+		private static ConnectionMultiplexer Connection => LazyRedis.Value;
 
 		public RedisCache(string config) : this(ConfigurationOptions.Parse(config))
 		{
@@ -37,7 +41,7 @@ namespace EFCache.Redis
 		// ReSharper disable once MemberCanBePrivate.Global
 		public RedisCache(ConfigurationOptions options)
 		{
-			_redis = ConnectionMultiplexer.Connect(options);
+			_configurationOptions = options;
 			_cacheIdentifier = DefaultCacheIdentifier;
 			_statsIdentifier = DefaultStatsIdentifier;
 		}
@@ -58,43 +62,33 @@ namespace EFCache.Redis
 
 		public RedisCache(string config, string cacheIdentifier)
 		{
-			_redis = ConnectionMultiplexer.Connect(config);
+			_redisConfig = config;
 			_cacheIdentifier = cacheIdentifier;
 			_statsIdentifier = DefaultStatsIdentifier;
 		}
 
 		public RedisCache(ConfigurationOptions options, string cacheIdentifier)
 		{
-			_redis = ConnectionMultiplexer.Connect(options);
+			_configurationOptions = options;
 			_cacheIdentifier = cacheIdentifier;
 			_statsIdentifier = DefaultStatsIdentifier;
 		}
 
-		public bool ShouldCollectStatistics { get; set; } = false;
+		public event EventHandler<RedisCacheException> CachingFailed;
 
-		protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
-		{
-			var handler = CachingFailed;
-			//don't simply digest, let caller handle exception if no handler provided
-			if (handler == null)
-			{
-				throw new RedisCacheException("Redis | Caching failed for " + memberName, e);
-			}
-			var redisCacheException = new RedisCacheException("Caching failed for " + memberName, e);
-			handler(this, redisCacheException);
-		}
+		public bool ShouldCollectStatistics { get; set; } = false;
 
 		public bool GetItem(string key, out object value, DbConnection backingConnection = null)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
-			_database = _redis.GetDatabase(); //connect only if arguments are valid to optimize resources
+			var database = Connection.GetDatabase(); //connect only if arguments are valid to optimize resources
 
 			var hashedKey = HashKey(key);
-			var now = DateTimeOffset.Now;//local variables are thread safe should be out of sync lock
+			var now = DateTimeOffset.Now; //local variables are thread safe should be out of sync lock
 
 			try
 			{
-				value = _database.Get<CacheEntry>(hashedKey);
+				value = database.Get<CacheEntry>(hashedKey);
 			}
 			catch (Exception e)
 			{
@@ -104,18 +98,16 @@ namespace EFCache.Redis
 
 			if (ShouldCollectStatistics)
 			{
-				lock (_lock)
+				try
 				{
-					try
-					{
-						_database.HashSet(DefaultQueryHashIdentifier,
-							new[] { new HashEntry(hashedKey, key) }, CommandFlags.FireAndForget);
-						_database.HashIncrement(AddStatsQualifier(hashedKey), value == null ? MissesIdentifier : HitsIdentifier, 1, CommandFlags.FireAndForget);
-					}
-					catch (Exception e)
-					{
-						OnCachingFailed(e);
-					}
+					database.HashSet(DefaultQueryHashIdentifier,
+						new[] { new HashEntry(hashedKey, key) }, CommandFlags.FireAndForget);
+					database.HashIncrement(AddStatsQualifier(hashedKey), value == null ? MissesIdentifier : HitsIdentifier, 1,
+						CommandFlags.FireAndForget);
+				}
+				catch (Exception e)
+				{
+					OnCachingFailed(e);
 				}
 			}
 
@@ -133,17 +125,14 @@ namespace EFCache.Redis
 				entry.LastAccess = now;
 				value = entry.Value;
 				// Update the entry in Redis to save the new LastAccess value.
-				lock (_lock)
+				try
 				{
-					try
-					{
-						_database.Set(hashedKey, entry);
-					}
-					catch (Exception e)
-					{
-						// Eventhough an error has occured, we will return true, because the retrieval of the entity was a success
-						OnCachingFailed(e);
-					}
+					database.Set(hashedKey, entry);
+				}
+				catch (Exception e)
+				{
+					// Eventhough an error has occured, we will return true, because the retrieval of the entity was a success
+					OnCachingFailed(e);
 				}
 				return true;
 			}
@@ -151,54 +140,31 @@ namespace EFCache.Redis
 			return false;
 		}
 
-		private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) => entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
-
-		public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration, DateTimeOffset absoluteExpiration, DbConnection backingConnection = null)
+		public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration,
+			DateTimeOffset absoluteExpiration, DbConnection backingConnection = null)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
 			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 			dependentEntitySets.GuardAgainstNull(nameof(dependentEntitySets));
 
-			_database = _redis.GetDatabase();
+			var database = Connection.GetDatabase();
 
 			key = HashKey(key);
 			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 			var entitySets = dependentEntitySets.ToArray();
 
-			lock (_lock)
+			try
 			{
-				try
+				foreach (var entitySet in entitySets)
 				{
-					foreach (var entitySet in entitySets)
-					{
-						_database.SetAdd(AddCacheQualifier(entitySet), key, CommandFlags.FireAndForget);
-					}
-
-					_database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
-				}
-				catch (Exception e)
-				{
-					OnCachingFailed(e);
+					database.SetAdd(AddCacheQualifier(entitySet), key, CommandFlags.FireAndForget);
 				}
 
-				if (ShouldCollectStatistics)
-				{
-				}
+				database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
 			}
-		}
-
-		private RedisKey AddCacheQualifier(string entitySet) => string.Concat(_cacheIdentifier, ".", entitySet);
-
-		private RedisKey AddStatsQualifier(string query) => string.Concat(_statsIdentifier, ".", query);
-
-		private static string HashKey(string key)
-		{
-			//Looking up large Keys in Redis can be expensive (comparing Large Strings), so if keys are large, hash them, otherwise if keys are short just use as-is
-			if (key.Length <= 128) return key;
-			using (var sha = new SHA1CryptoServiceProvider())
+			catch (Exception e)
 			{
-				key = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(key)));
-				return key;
+				OnCachingFailed(e);
 			}
 		}
 
@@ -207,33 +173,30 @@ namespace EFCache.Redis
 			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 			entitySets.GuardAgainstNull(nameof(entitySets));
 
-			_database = _redis.GetDatabase();
+			var database = Connection.GetDatabase();
 
 			var itemsToInvalidate = new HashSet<string>();
 
-			lock (_lock)
+			try
 			{
-				try
+				// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
+				foreach (var entitySet in entitySets)
 				{
-					// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
-					foreach (var entitySet in entitySets)
-					{
-						var entitySetKey = AddCacheQualifier(entitySet);
-						var keys = _database.SetMembers(entitySetKey).Select(v => v.ToString());
-						itemsToInvalidate.UnionWith(keys);
-						_database.KeyDelete(entitySetKey, CommandFlags.FireAndForget);
-					}
+					var entitySetKey = AddCacheQualifier(entitySet);
+					var keys = database.SetMembers(entitySetKey).Select(v => v.ToString());
+					itemsToInvalidate.UnionWith(keys);
+					database.KeyDelete(entitySetKey, CommandFlags.FireAndForget);
 				}
-				catch (Exception e)
-				{
-					OnCachingFailed(e);
-					return;
-				}
+			}
+			catch (Exception e)
+			{
+				OnCachingFailed(e);
+				return;
+			}
 
-				foreach (var key in itemsToInvalidate)
-				{
-					InvalidateItem(key, backingConnection);
-				}
+			foreach (var key in itemsToInvalidate)
+			{
+				InvalidateItem(key, backingConnection);
 			}
 		}
 
@@ -241,42 +204,36 @@ namespace EFCache.Redis
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
 
-			_database = _redis.GetDatabase();
+			var database = Connection.GetDatabase();
 
 			var hashedKey = HashKey(key);
 
-			lock (_lock)
+			try
 			{
-				try
+				var entry = database.Get<CacheEntry>(hashedKey);
+
+				if (entry == null) return;
+
+				database.KeyDelete(hashedKey, CommandFlags.FireAndForget);
+
+				foreach (var set in entry.EntitySets)
 				{
-					var entry = _database.Get<CacheEntry>(hashedKey);
-
-					if (entry == null) return;
-
-					_database.KeyDelete(hashedKey, CommandFlags.FireAndForget);
-
-					foreach (var set in entry.EntitySets)
-					{
-						_database.SetRemove(AddCacheQualifier(set), hashedKey, CommandFlags.FireAndForget);
-					}
+					database.SetRemove(AddCacheQualifier(set), hashedKey, CommandFlags.FireAndForget);
 				}
-				catch (Exception e)
-				{
-					OnCachingFailed(e);
-				}
+			}
+			catch (Exception e)
+			{
+				OnCachingFailed(e);
 			}
 
 			if (!ShouldCollectStatistics) return;
-			lock (_lock)
+			try
 			{
-				try
-				{
-					_database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
-				}
-				catch (Exception e)
-				{
-					OnCachingFailed(e);
-				}
+				database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
+			}
+			catch (Exception e)
+			{
+				OnCachingFailed(e);
 			}
 		}
 
@@ -285,42 +242,32 @@ namespace EFCache.Redis
 		{
 			get
 			{
-				_database = _redis.GetDatabase();
-				lock (_lock)
-				{
-					var count = _database.Multiplexer.GetEndPoints()
-						.Sum(endpoint => _database.Multiplexer.GetServer(endpoint).Keys(pattern: "*").LongCount());
-					return count;
-				}
+				var database = Connection.GetDatabase();
+				var count = database.Multiplexer.GetEndPoints()
+					.Sum(endpoint => database.Multiplexer.GetServer(endpoint).Keys(pattern: "*").LongCount());
+				return count;
 			}
 		}
 
 		public void Purge()
 		{
-			_database = _redis.GetDatabase();
-			lock (_lock)
+			var database = Connection.GetDatabase();
+			foreach (var endPoint in database.Multiplexer.GetEndPoints())
 			{
-				foreach (var endPoint in _database.Multiplexer.GetEndPoints())
-				{
-					_database.Multiplexer.GetServer(endPoint).FlushDatabase();
-				}
+				database.Multiplexer.GetServer(endPoint).FlushDatabase();
 			}
 		}
 
 		public IEnumerable<QueryStatistics> GetStatistics()
 		{
-			_database = _redis.GetDatabase();
-			List<StatResult> allStats;
-			lock (_lock)
-			{
-				var queries = _database.HashGetAll(DefaultQueryHashIdentifier);
-				allStats = queries.Select(q =>
-					new StatResult
-					{
-						Query = q,
-						Stats = _database.HashGetAll(AddStatsQualifier(q.Name.ToString()))
-					}).ToList();
-			}
+			var database = Connection.GetDatabase();
+			var queries = database.HashGetAll(DefaultQueryHashIdentifier);
+			var allStats = queries.Select(q =>
+				new StatResult
+				{
+					Query = q,
+					Stats = database.HashGetAll(AddStatsQualifier(q.Name.ToString()))
+				}).ToList();
 			return allStats.Select(r =>
 				{
 					var stats = r.Stats;
@@ -353,6 +300,36 @@ namespace EFCache.Redis
 					};
 				})
 				.OrderBy(o => o.Query);
+		}
+
+		protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
+		{
+			var handler = CachingFailed;
+			//don't simply digest, let caller handle exception if no handler provided
+			if (handler == null)
+			{
+				throw new RedisCacheException("Redis | Caching failed for " + memberName, e);
+			}
+			var redisCacheException = new RedisCacheException("Caching failed for " + memberName, e);
+			handler(this, redisCacheException);
+		}
+
+		private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) =>
+			entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
+
+		private RedisKey AddCacheQualifier(string entitySet) => string.Concat(_cacheIdentifier, ".", entitySet);
+
+		private RedisKey AddStatsQualifier(string query) => string.Concat(_statsIdentifier, ".", query);
+
+		private static string HashKey(string key)
+		{
+			//Looking up large Keys in Redis can be expensive (comparing Large Strings), so if keys are large, hash them, otherwise if keys are short just use as-is
+			if (key.Length <= 128) return key;
+			using (var sha = new SHA1CryptoServiceProvider())
+			{
+				key = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(key)));
+				return key;
+			}
 		}
 	}
 
