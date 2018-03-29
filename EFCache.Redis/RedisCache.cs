@@ -274,7 +274,7 @@ namespace EFCache.Redis
 					var hits = stats.SingleOrDefault(s => s.Name == HitsIdentifier);
 					var misses = stats.SingleOrDefault(s => s.Name == MissesIdentifier);
 					var invalidations = stats.SingleOrDefault(s => s.Name == InvalidationsIdentifier);
-					var matches = Regex.Matches(r.Query.Value.ToString(), @"(_p__linq__\d+=(?:(?!_p__linq).)*)+");
+					var matches = Regex.Matches(r.Query.Value.ToString(), @"(_p__linq__\d+=(?:(?!_p__linq).)*|_EntityKeyValue\d+=(?:(?!_EntityKeyValue).)*)+");
 					var queryParams = new List<string>();
 					if (matches.Count > 0)
 					{
