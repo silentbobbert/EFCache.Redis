@@ -38,7 +38,6 @@ namespace EFCache.Redis
 		{
 		}
 
-		// ReSharper disable once MemberCanBePrivate.Global
 		public RedisCache(ConfigurationOptions options)
 		{
 			_configurationOptions = options;
@@ -81,14 +80,14 @@ namespace EFCache.Redis
 		public bool GetItem(string key, out object value, DbConnection backingConnection = null)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
-			var database = Connection.GetDatabase(); //connect only if arguments are valid to optimize resources
 
+			var database = Connection.GetDatabase();
 			var hashedKey = HashKey(key);
-			var now = DateTimeOffset.Now; //local variables are thread safe should be out of sync lock
+			var now = DateTimeOffset.Now; 
 
 			try
 			{
-				value = database.Get<CacheEntry>(hashedKey);
+				value = database.ObjectGet<CacheEntry>(hashedKey);
 			}
 			catch (Exception e)
 			{
@@ -127,7 +126,7 @@ namespace EFCache.Redis
 				// Update the entry in Redis to save the new LastAccess value.
 				try
 				{
-					database.Set(hashedKey, entry);
+					database.ObjectSet(hashedKey, entry);
 				}
 				catch (Exception e)
 				{
@@ -148,19 +147,19 @@ namespace EFCache.Redis
 			dependentEntitySets.GuardAgainstNull(nameof(dependentEntitySets));
 
 			var database = Connection.GetDatabase();
-
-			key = HashKey(key);
+			var hashedKey = HashKey(key);
 			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 			var entitySets = dependentEntitySets.ToArray();
 
 			try
 			{
+				var transaction = database.CreateTransaction();
 				foreach (var entitySet in entitySets)
 				{
-					database.SetAdd(AddCacheQualifier(entitySet), key, CommandFlags.FireAndForget);
+					transaction.SetAddAsync(AddCacheQualifier(entitySet), hashedKey);
 				}
-
-				database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
+				transaction.ObjectSetAsync(hashedKey, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
+				transaction.Execute();
 			}
 			catch (Exception e)
 			{
@@ -175,28 +174,37 @@ namespace EFCache.Redis
 
 			var database = Connection.GetDatabase();
 
-			var itemsToInvalidate = new HashSet<string>();
-
 			try
 			{
+				var keysAndEntitySetsToInvalidate = new HashSet<(string, RedisKey)>();
 				// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 				foreach (var entitySet in entitySets)
 				{
 					var entitySetKey = AddCacheQualifier(entitySet);
-					var keys = database.SetMembers(entitySetKey).Select(v => v.ToString());
-					itemsToInvalidate.UnionWith(keys);
-					database.KeyDelete(entitySetKey, CommandFlags.FireAndForget);
+					var keys = database.SetMembers(entitySetKey).Select(v => (v.ToString(), entitySetKey));
+					keysAndEntitySetsToInvalidate.UnionWith(keys);
 				}
+
+				var transaction = database.CreateTransaction();
+				foreach (var (key, entitySetKey) in keysAndEntitySetsToInvalidate)
+				{
+					var hashedKey = HashKey(key);
+					transaction.KeyDeleteAsync(hashedKey);
+					transaction.SetRemoveAsync(entitySetKey, hashedKey);
+				}
+				var committed = transaction.Execute();
+
+				if (!ShouldCollectStatistics || !committed) return;
+				
+				foreach (var (key, _) in keysAndEntitySetsToInvalidate)
+				{
+					database.HashIncrement(AddStatsQualifier(HashKey(key)), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
+				}
+				
 			}
 			catch (Exception e)
 			{
 				OnCachingFailed(e);
-				return;
-			}
-
-			foreach (var key in itemsToInvalidate)
-			{
-				InvalidateItem(key, backingConnection);
 			}
 		}
 
@@ -205,30 +213,23 @@ namespace EFCache.Redis
 			key.GuardAgainstNullOrEmpty(nameof(key));
 
 			var database = Connection.GetDatabase();
-
 			var hashedKey = HashKey(key);
 
 			try
 			{
-				var entry = database.Get<CacheEntry>(hashedKey);
-
+				var entry = database.ObjectGet<CacheEntry>(hashedKey);
 				if (entry == null) return;
 
-				database.KeyDelete(hashedKey, CommandFlags.FireAndForget);
-
+				var transaction = database.CreateTransaction();
+				transaction.KeyDeleteAsync(hashedKey);
 				foreach (var set in entry.EntitySets)
 				{
-					database.SetRemove(AddCacheQualifier(set), hashedKey, CommandFlags.FireAndForget);
+					transaction.SetRemoveAsync(AddCacheQualifier(set), hashedKey);
 				}
-			}
-			catch (Exception e)
-			{
-				OnCachingFailed(e);
-			}
+				var committed = transaction.Execute();
 
-			if (!ShouldCollectStatistics) return;
-			try
-			{
+				if (!ShouldCollectStatistics || !committed) return;
+				
 				database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
 			}
 			catch (Exception e)

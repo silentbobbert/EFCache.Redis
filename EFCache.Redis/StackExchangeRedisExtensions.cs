@@ -2,23 +2,29 @@
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Threading.Tasks;
 
 namespace EFCache.Redis
 {
     public static class StackExchangeRedisExtensions
     {
-        public static T Get<T>(this IDatabase cache, string key)
+        public static T ObjectGet<T>(this IDatabase cache, string key)
         {
             var item = cache.StringGet(key);
             return Deserialize<T>(item);
         }
 
-        public static void Set<T>(this IDatabase cache, string key, T value) where T : class
+        public static void ObjectSet<T>(this IDatabase cache, string key, T value) where T : class
         {
-            cache.StringSet(key, Serialize<T>(value));
+            cache.StringSet(key, Serialize(value));
         }
 
-        static byte[] Serialize<T>(T o) where T : class
+        public static Task<bool> ObjectSetAsync<T>(this IDatabaseAsync cache, string key, T value) where T : class
+        {
+            return cache.StringSetAsync(key, Serialize(value));
+        }
+
+        private static byte[] Serialize<T>(T o) where T : class
         {
             if (o == null) return null;
             var binaryFormatter = new BinaryFormatter();
@@ -31,7 +37,7 @@ namespace EFCache.Redis
             }
         }
 
-        static T Deserialize<T>(byte[] stream)
+        private static T Deserialize<T>(byte[] stream)
         {
             if (stream == null || !stream.Any()) return default(T);
             var binaryFormatter = new BinaryFormatter();

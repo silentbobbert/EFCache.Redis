@@ -15,10 +15,8 @@ namespace EFCache.Redis
             LastAccess = DateTimeOffset.Now;
         }
 
-        // ReSharper disable once MemberCanBePrivate.Global
         public CacheEntry()
         {
-
         }
 
         public object Value { get; set; }
