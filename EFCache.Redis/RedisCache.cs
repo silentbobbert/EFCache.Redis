@@ -77,7 +77,7 @@ namespace EFCache.Redis
 
 		public bool ShouldCollectStatistics { get; set; } = false;
 
-		public bool GetItem(string key, out object value, DbConnection backingConnection = null)
+		public bool GetItem(string key, out object value)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
 
@@ -116,7 +116,7 @@ namespace EFCache.Redis
 
 			if (EntryExpired(entry, now))
 			{
-				InvalidateItem(hashedKey, backingConnection);
+				InvalidateItem(hashedKey);
 				value = null;
 			}
 			else
@@ -140,7 +140,7 @@ namespace EFCache.Redis
 		}
 
 		public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration,
-			DateTimeOffset absoluteExpiration, DbConnection backingConnection = null)
+			DateTimeOffset absoluteExpiration)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
 			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
@@ -167,7 +167,7 @@ namespace EFCache.Redis
 			}
 		}
 
-		public void InvalidateSets(IEnumerable<string> entitySets, DbConnection backingConnection = null)
+		public void InvalidateSets(IEnumerable<string> entitySets)
 		{
 			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 			entitySets.GuardAgainstNull(nameof(entitySets));
@@ -208,7 +208,7 @@ namespace EFCache.Redis
 			}
 		}
 
-		public void InvalidateItem(string key, DbConnection backingConnection = null)
+		public void InvalidateItem(string key)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
 
