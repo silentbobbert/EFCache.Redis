@@ -1,12 +1,12 @@
+using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
-using System.Data.Common;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using StackExchange.Redis;
+using System.Threading;
 
 namespace EFCache.Redis
 {
@@ -18,6 +18,9 @@ namespace EFCache.Redis
 		private const string HitsIdentifier = "hits";
 		private const string MissesIdentifier = "misses";
 		private const string InvalidationsIdentifier = "invalidations";
+
+		private const int RetryLimit = 3;
+		private static readonly int[] RetryBackoffs = { 250, 500, 1000 };
 
 		private static ConfigurationOptions _configurationOptions;
 		private static string _redisConfig;
@@ -83,7 +86,7 @@ namespace EFCache.Redis
 
 			var database = Connection.GetDatabase();
 			var hashedKey = HashKey(key);
-			var now = DateTimeOffset.Now; 
+			var now = DateTimeOffset.Now;
 
 			try
 			{
@@ -167,6 +170,9 @@ namespace EFCache.Redis
 			}
 		}
 
+		// Note: This method does not use try/catch. It attempts retry and then throws if unsuccessful
+		// This method should never be allowed to proceed with an exception as it will lead to
+		// an incoherent cache
 		public void InvalidateSets(IEnumerable<string> entitySets)
 		{
 			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
@@ -174,9 +180,12 @@ namespace EFCache.Redis
 
 			var database = Connection.GetDatabase();
 
-			try
+			var keysAndEntitySetsToInvalidate = new HashSet<(string, RedisKey)>();
+			var committed = false;
+			var random = new Random();
+			PerformWithRetryBackoff(() =>
 			{
-				var keysAndEntitySetsToInvalidate = new HashSet<(string, RedisKey)>();
+				if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
 				// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 				foreach (var entitySet in entitySets)
 				{
@@ -192,22 +201,21 @@ namespace EFCache.Redis
 					transaction.KeyDeleteAsync(hashedKey);
 					transaction.SetRemoveAsync(entitySetKey, hashedKey);
 				}
-				var committed = transaction.Execute();
 
-				if (!ShouldCollectStatistics || !committed) return;
-				
-				foreach (var (key, _) in keysAndEntitySetsToInvalidate)
-				{
-					database.HashIncrement(AddStatsQualifier(HashKey(key)), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
-				}
-				
-			}
-			catch (Exception e)
+				committed = transaction.Execute();
+			});
+
+			if (!ShouldCollectStatistics || !committed) return;
+
+			foreach (var (key, _) in keysAndEntitySetsToInvalidate)
 			{
-				OnCachingFailed(e);
+				database.HashIncrement(AddStatsQualifier(HashKey(key)), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
 			}
 		}
 
+		// Note: This method does not use try/catch. It attempts retry and then throws if unsuccessful
+		// This method should never be allowed to proceed with an exception as it will lead to
+		// an incoherent cache
 		public void InvalidateItem(string key)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
@@ -215,8 +223,11 @@ namespace EFCache.Redis
 			var database = Connection.GetDatabase();
 			var hashedKey = HashKey(key);
 
-			try
+			var committed = false;
+			var random = new Random();
+			PerformWithRetryBackoff(() =>
 			{
+				if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
 				var entry = database.ObjectGet<CacheEntry>(hashedKey);
 				if (entry == null) return;
 
@@ -226,16 +237,43 @@ namespace EFCache.Redis
 				{
 					transaction.SetRemoveAsync(AddCacheQualifier(set), hashedKey);
 				}
-				var committed = transaction.Execute();
 
-				if (!ShouldCollectStatistics || !committed) return;
-				
-				database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
-			}
-			catch (Exception e)
+				committed = transaction.Execute();
+			});
+
+			if (!ShouldCollectStatistics || !committed) return;
+
+			database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
+		}
+
+		/// <summary>
+		/// This provides a retry mechanism and throws without handling if retries are not successful.
+		/// This should only be used by the invalidation process. Gets and sets should be quick and
+		/// there are no data integrity issues if they fail.
+		/// An unsuccessful invalidation will cause the cache to become incoherent and should be avoided
+		/// at all costs.
+		/// </summary>
+		/// <param name="action"></param>
+		private static void PerformWithRetryBackoff(Action action)
+		{
+			var exceptionList = new List<Exception>();
+			// Attempt the action, plus up to RetryLimit additional attempts
+			for (var i = 0; i <= RetryLimit; i++)
 			{
-				OnCachingFailed(e);
+				try
+				{
+					action();
+					return;
+				}
+				catch (Exception e)
+				{
+					exceptionList.Add(e);
+					if (i < RetryLimit - 1)
+						Thread.Sleep(RetryBackoffs[i]);
+				}
 			}
+
+			throw new AggregateException("Retry exception", exceptionList);
 		}
 
 		// ReSharper disable once BuiltInTypeReferenceStyle
