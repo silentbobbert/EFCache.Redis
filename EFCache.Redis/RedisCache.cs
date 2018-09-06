@@ -170,10 +170,19 @@ namespace EFCache.Redis
 			}
 		}
 
-		// Note: This method does not use try/catch. It attempts retry and then throws if unsuccessful
-		// This method should never be allowed to proceed with an exception as it will lead to
-		// an incoherent cache
 		public void InvalidateSets(IEnumerable<string> entitySets)
+		{
+			throw new NotImplementedException();
+		}
+
+		/// <summary>
+		/// Remove keys and related sets from cache for a list of entitySets. If a transaction is provided (i.e.
+		/// this is called during an already started transaction, use the provided transaction. Otherwise
+		/// create one so the invalidation is atomic.
+		/// </summary>
+		/// <param name="entitySets">The entity sets affected by the current db query</param>
+		/// <param name="cacheTransaction">The optional existing transaction</param>
+		public void InvalidateSets(IEnumerable<string> entitySets, object cacheTransaction)
 		{
 			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 			entitySets.GuardAgainstNull(nameof(entitySets));
@@ -181,32 +190,38 @@ namespace EFCache.Redis
 			var database = Connection.GetDatabase();
 
 			var keysAndEntitySetsToInvalidate = new HashSet<(string, RedisKey)>();
-			var committed = false;
+			//TODO: Remove this!!
 			var random = new Random();
-			PerformWithRetryBackoff(() =>
+			PerformWithRetryBackoff(async () =>
 			{
-				if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
+				//TODO: Remove this!!
+				//if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
+
+				var transaction = cacheTransaction == null ? database.CreateTransaction() : (ITransaction)cacheTransaction;
 				// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
 				foreach (var entitySet in entitySets)
 				{
 					var entitySetKey = AddCacheQualifier(entitySet);
-					var keys = database.SetMembers(entitySetKey).Select(v => (v.ToString(), entitySetKey));
+					var keys = (await transaction.SetMembersAsync(entitySetKey)).Select(v => (v.ToString(), entitySetKey));
 					keysAndEntitySetsToInvalidate.UnionWith(keys);
 				}
 
-				var transaction = database.CreateTransaction();
 				foreach (var (key, entitySetKey) in keysAndEntitySetsToInvalidate)
 				{
 					var hashedKey = HashKey(key);
-					transaction.KeyDeleteAsync(hashedKey);
-					transaction.SetRemoveAsync(entitySetKey, hashedKey);
+					await transaction.KeyDeleteAsync(hashedKey);
+					await transaction.SetRemoveAsync(entitySetKey, hashedKey);
 				}
 
-				committed = transaction.Execute();
+				if (cacheTransaction == null)
+					transaction.Execute();
 			});
 
-			if (!ShouldCollectStatistics || !committed) return;
+			if (!ShouldCollectStatistics) return;
 
+			// Because we may be executing in an outer transaction, and because we don't want to include stats tracking in that
+			// transaction, we fire this off regardless of whether the transaction succeeded. The stats may not be 100% accurate
+			// but that's the tradeoff for simplifying the primary logic
 			foreach (var (key, _) in keysAndEntitySetsToInvalidate)
 			{
 				database.HashIncrement(AddStatsQualifier(HashKey(key)), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
@@ -223,27 +238,43 @@ namespace EFCache.Redis
 			var database = Connection.GetDatabase();
 			var hashedKey = HashKey(key);
 
-			var committed = false;
+			//TODO: Remove this!!
 			var random = new Random();
-			PerformWithRetryBackoff(() =>
+			PerformWithRetryBackoff(async () =>
 			{
-				if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
-				var entry = database.ObjectGet<CacheEntry>(hashedKey);
+				var transaction = database.CreateTransaction();
+				//TODO: Remove this!!
+				// (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
+
+				var entry = await transaction.ObjectGetAsync<CacheEntry>(key);
 				if (entry == null) return;
 
-				var transaction = database.CreateTransaction();
-				transaction.KeyDeleteAsync(hashedKey);
+				await transaction.KeyDeleteAsync(hashedKey);
 				foreach (var set in entry.EntitySets)
 				{
-					transaction.SetRemoveAsync(AddCacheQualifier(set), hashedKey);
+					await transaction.SetRemoveAsync(AddCacheQualifier(set), hashedKey);
 				}
 
-				committed = transaction.Execute();
+				transaction.Execute();
 			});
 
-			if (!ShouldCollectStatistics || !committed) return;
+			// Because we don't want to include stats tracking in the, we fire this off regardless of whether the transaction
+			// succeeded. The stats may not be 100% accurate but that's the tradeoff for simplifying the primary logic
+			if (!ShouldCollectStatistics) return;
 
 			database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
+		}
+
+		public object BeginTransaction()
+		{
+			var database = Connection.GetDatabase();
+			return database.CreateTransaction();
+		}
+
+		public void CommitTransaction(object cacheTransaction)
+		{
+			var transaction = (ITransaction)cacheTransaction;
+			transaction.Execute();
 		}
 
 		/// <summary>

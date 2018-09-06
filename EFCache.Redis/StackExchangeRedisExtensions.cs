@@ -14,6 +14,12 @@ namespace EFCache.Redis
             return Deserialize<T>(item);
         }
 
+        public static async Task<T> ObjectGetAsync<T>(this ITransaction transaction, string key)
+        {
+            var item = await transaction.StringGetAsync(key);
+            return Deserialize<T>(item);
+        }
+
         public static void ObjectSet<T>(this IDatabase cache, string key, T value) where T : class
         {
             cache.StringSet(key, Serialize(value));
