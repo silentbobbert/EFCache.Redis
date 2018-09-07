@@ -39,13 +39,16 @@ namespace EFCache.Redis
 		private readonly string _statsIdentifier;
 
 		private const string InvalidateSetsScript =
-@"for _, entitySetKey in ipairs(KEYS) do
+@"local queryKeys = {}
+for _, entitySetKey in ipairs(KEYS) do
 	 local keys = redis.call('smembers', entitySetKey)
 	 for _, queryKey in ipairs(keys) do
-			redis.call('del', queryKey)
-			redis.call('srem', entitySetKey, queryKey)
+		table.insert(queryKeys, queryKey)
+		redis.call('del', queryKey)
+		redis.call('srem', entitySetKey, queryKey)
 	 end
-end";
+end
+return queryKeys";
 
 		private const string InvalidateSingleKeyScript =
 @"local queryKey = KEYS[1]
@@ -250,12 +253,17 @@ redis.call('set', rsKey, ARGV[1])";
 
 			//TODO: Remove this!!
 			var random = new Random();
+			var queryKeys = new System.Collections.Generic.HashSet<string>();
 			PerformWithRetryBackoff(() =>
 			{
 				//TODO: Remove this!!
 				//if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
 
-				database.ScriptEvaluate(_invalidateSetsScriptSha1, setKeys.ToArray());
+				var result = database.ScriptEvaluate(_invalidateSetsScriptSha1, setKeys.ToArray());
+				foreach (var queryKey in (string[])result)
+				{
+					queryKeys.Add(queryKey);
+				}
 			});
 			// ReSharper restore PossibleMultipleEnumeration
 
@@ -264,6 +272,11 @@ redis.call('set', rsKey, ARGV[1])";
 			foreach (var setKey in setKeys)
 			{
 				database.HashIncrement(AddStatsQualifier(HashKey(setKey)), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
+			}
+
+			foreach (var hashedKey in queryKeys)
+			{
+				database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
 			}
 		}
 
