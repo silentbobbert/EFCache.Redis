@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace EFCache.Redis
 {
-    public interface IRedisCache : ICache
+    public interface IRedisCache : ILockableCache
     {
         Int64 Count { get; }
         void Purge();

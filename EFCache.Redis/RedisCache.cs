@@ -1,3 +1,5 @@
+using RedLockNet.SERedis;
+using RedLockNet.SERedis.Configuration;
 using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
@@ -10,7 +12,7 @@ using System.Threading;
 
 namespace EFCache.Redis
 {
-	public class RedisCache : IRedisCache
+	public class RedisCache : IRedisCache, IDisposable
 	{
 		private const string DefaultCacheIdentifier = "__EFCache.Redis_EntitySetKey_";
 		private const string DefaultStatsIdentifier = "__EFCache.Redis_Stats_";
@@ -18,6 +20,7 @@ namespace EFCache.Redis
 		private const string HitsIdentifier = "hits";
 		private const string MissesIdentifier = "misses";
 		private const string InvalidationsIdentifier = "invalidations";
+		private const string LockResource = "lock-resource";
 
 		private const int RetryLimit = 3;
 		private static readonly int[] RetryBackoffs = { 250, 500, 1000 };
@@ -26,16 +29,65 @@ namespace EFCache.Redis
 		private static string _redisConfig;
 		private static ConnectionMultiplexer _redis;
 
-		private static readonly Lazy<ConnectionMultiplexer> LazyRedis = _redis != null
-			? new Lazy<ConnectionMultiplexer>(() => _redis)
-			: new Lazy<ConnectionMultiplexer>(() => _redisConfig != null
-				? ConnectionMultiplexer.Connect(_redisConfig)
-				: ConnectionMultiplexer.Connect(_configurationOptions));
+		private static readonly Lazy<ConnectionMultiplexer> LazyRedis = ConnectAndLoadScripts();
+
+		private static readonly Lazy<RedLockFactory> LazyRedLockFactory =
+			new Lazy<RedLockFactory>(() => RedLockFactory.Create(new List<RedLockMultiplexer> { new RedLockMultiplexer(Connection) }));
 
 		private readonly string _cacheIdentifier;
 		private readonly string _statsIdentifier;
 
+		private const string InvalidateSetsScript =
+@"for _, entitySetKey in ipairs(KEYS) do
+	 local keys = redis.call('smembers', entitySetKey)
+	 for _, queryKey in ipairs(keys) do
+			redis.call('del', queryKey)
+			redis.call('srem', entitySetKey, queryKey)
+	 end
+end";
+
+		private const string InvalidateSingleKeyScript =
+@"local queryKey = KEYS[1]
+for i = 2,table.getn(KEYS) do
+	 redis.call('srem', KEYS[i], queryKey)
+end
+redis.call('del', queryKey)";
+
+		private const string PutItemScript =
+@"local rsKey = KEYS[1]
+for i = 2,table.getn(KEYS) do
+	 redis.call('sadd', KEYS[i], rsKey)
+end
+redis.call('set', rsKey, ARGV[1])";
+
+		private static byte[] _invalidateSetsScriptSha1;
+		private static byte[] _invalidateSingleyKeyScriptSha1;
+		private static byte[] _putItemScriptSha1;
+
 		private static ConnectionMultiplexer Connection => LazyRedis.Value;
+
+		private static Lazy<ConnectionMultiplexer> ConnectAndLoadScripts()
+		{
+			return _redis != null
+				? new Lazy<ConnectionMultiplexer>(() => LoadScripts(_redis))
+				: new Lazy<ConnectionMultiplexer>(() =>
+					LoadScripts(_redisConfig != null
+						? ConnectionMultiplexer.Connect(_redisConfig)
+						: ConnectionMultiplexer.Connect(_configurationOptions)));
+		}
+
+		private static ConnectionMultiplexer LoadScripts(ConnectionMultiplexer r)
+		{
+			var endpoints = r.GetEndPoints();
+			foreach (var endpoint in endpoints)
+			{
+				var server = r.GetServer(endpoint);
+				_invalidateSetsScriptSha1 = server.ScriptLoad(InvalidateSetsScript);
+				_invalidateSingleyKeyScriptSha1 = server.ScriptLoad(InvalidateSingleKeyScript);
+				_putItemScriptSha1 = server.ScriptLoad(PutItemScript);
+			}
+			return r;
+		}
 
 		public RedisCache(string config) : this(ConfigurationOptions.Parse(config))
 		{
@@ -119,17 +171,25 @@ namespace EFCache.Redis
 
 			if (EntryExpired(entry, now))
 			{
+				var redLock = Lock(null, new List<string>{hashedKey});
 				InvalidateItem(hashedKey);
+				ReleaseLock(redLock);
 				value = null;
 			}
 			else
 			{
-				entry.LastAccess = now;
 				value = entry.Value;
+				
+				// If not expiring keys, no need to make another Redis call
+				if (entry.AbsoluteExpiration == DateTimeOffset.MaxValue && entry.SlidingExpiration == TimeSpan.MaxValue) return true;
+
 				// Update the entry in Redis to save the new LastAccess value.
+				entry.LastAccess = now;
 				try
 				{
+					var redLock = Lock(null, new List<string>{hashedKey});
 					database.ObjectSet(hashedKey, entry);
+					ReleaseLock(redLock);
 				}
 				catch (Exception e)
 				{
@@ -146,23 +206,20 @@ namespace EFCache.Redis
 			DateTimeOffset absoluteExpiration)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
-			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
-			dependentEntitySets.GuardAgainstNull(nameof(dependentEntitySets));
+			var entitySets = dependentEntitySets as string[] ?? dependentEntitySets.ToArray();
+			entitySets.GuardAgainstNull(nameof(dependentEntitySets));
 
 			var database = Connection.GetDatabase();
 			var hashedKey = HashKey(key);
-			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
-			var entitySets = dependentEntitySets.ToArray();
+
+			var keys = new List<RedisKey> {hashedKey};
+			keys.AddRange(entitySets.Select(AddCacheQualifier));
 
 			try
 			{
-				var transaction = database.CreateTransaction();
-				foreach (var entitySet in entitySets)
-				{
-					transaction.SetAddAsync(AddCacheQualifier(entitySet), hashedKey);
-				}
-				transaction.ObjectSetAsync(hashedKey, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration));
-				transaction.Execute();
+				var serializedValue = StackExchangeRedisExtensions.Serialize(new CacheEntry(value, entitySets.ToArray(), slidingExpiration,
+					absoluteExpiration));
+				database.ScriptEvaluate(_putItemScriptSha1, keys.ToArray(), new RedisValue[]{serializedValue});
 			}
 			catch (Exception e)
 			{
@@ -172,65 +229,31 @@ namespace EFCache.Redis
 
 		public void InvalidateSets(IEnumerable<string> entitySets)
 		{
-			throw new NotImplementedException();
-		}
-
-		/// <summary>
-		/// Remove keys and related sets from cache for a list of entitySets. If a transaction is provided (i.e.
-		/// this is called during an already started transaction, use the provided transaction. Otherwise
-		/// create one so the invalidation is atomic.
-		/// </summary>
-		/// <param name="entitySets">The entity sets affected by the current db query</param>
-		/// <param name="cacheTransaction">The optional existing transaction</param>
-		public void InvalidateSets(IEnumerable<string> entitySets, object cacheTransaction)
-		{
-			// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
+			// ReSharper disable PossibleMultipleEnumeration
 			entitySets.GuardAgainstNull(nameof(entitySets));
 
 			var database = Connection.GetDatabase();
+			var setKeys = entitySets.Select(AddCacheQualifier);
 
-			var keysAndEntitySetsToInvalidate = new HashSet<(string, RedisKey)>();
 			//TODO: Remove this!!
 			var random = new Random();
-			PerformWithRetryBackoff(async () =>
+			PerformWithRetryBackoff(() =>
 			{
 				//TODO: Remove this!!
 				//if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
 
-				var transaction = cacheTransaction == null ? database.CreateTransaction() : (ITransaction)cacheTransaction;
-				// ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
-				foreach (var entitySet in entitySets)
-				{
-					var entitySetKey = AddCacheQualifier(entitySet);
-					var keys = (await transaction.SetMembersAsync(entitySetKey)).Select(v => (v.ToString(), entitySetKey));
-					keysAndEntitySetsToInvalidate.UnionWith(keys);
-				}
-
-				foreach (var (key, entitySetKey) in keysAndEntitySetsToInvalidate)
-				{
-					var hashedKey = HashKey(key);
-					await transaction.KeyDeleteAsync(hashedKey);
-					await transaction.SetRemoveAsync(entitySetKey, hashedKey);
-				}
-
-				if (cacheTransaction == null)
-					transaction.Execute();
+				database.ScriptEvaluate(_invalidateSetsScriptSha1, setKeys.ToArray());
 			});
+			// ReSharper restore PossibleMultipleEnumeration
 
 			if (!ShouldCollectStatistics) return;
 
-			// Because we may be executing in an outer transaction, and because we don't want to include stats tracking in that
-			// transaction, we fire this off regardless of whether the transaction succeeded. The stats may not be 100% accurate
-			// but that's the tradeoff for simplifying the primary logic
-			foreach (var (key, _) in keysAndEntitySetsToInvalidate)
+			foreach (var setKey in setKeys)
 			{
-				database.HashIncrement(AddStatsQualifier(HashKey(key)), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
+				database.HashIncrement(AddStatsQualifier(HashKey(setKey)), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
 			}
 		}
 
-		// Note: This method does not use try/catch. It attempts retry and then throws if unsuccessful
-		// This method should never be allowed to proceed with an exception as it will lead to
-		// an incoherent cache
 		public void InvalidateItem(string key)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
@@ -238,24 +261,20 @@ namespace EFCache.Redis
 			var database = Connection.GetDatabase();
 			var hashedKey = HashKey(key);
 
+			var entry = database.ObjectGet<CacheEntry>(key);
+			if (entry == null) return;
+			var keys = new List<RedisKey> {key};
+			keys.AddRange(entry.EntitySets.Select(AddCacheQualifier));
+
 			//TODO: Remove this!!
 			var random = new Random();
-			PerformWithRetryBackoff(async () =>
+
+			PerformWithRetryBackoff(() =>
 			{
-				var transaction = database.CreateTransaction();
 				//TODO: Remove this!!
 				// (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
 
-				var entry = await transaction.ObjectGetAsync<CacheEntry>(key);
-				if (entry == null) return;
-
-				await transaction.KeyDeleteAsync(hashedKey);
-				foreach (var set in entry.EntitySets)
-				{
-					await transaction.SetRemoveAsync(AddCacheQualifier(set), hashedKey);
-				}
-
-				transaction.Execute();
+				database.ScriptEvaluate(_invalidateSingleyKeyScriptSha1, keys.ToArray());
 			});
 
 			// Because we don't want to include stats tracking in the, we fire this off regardless of whether the transaction
@@ -265,16 +284,25 @@ namespace EFCache.Redis
 			database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
 		}
 
-		public object BeginTransaction()
+		public object Lock(IEnumerable<string> entitySets, IEnumerable<string> keys)
 		{
-			var database = Connection.GetDatabase();
-			return database.CreateTransaction();
+			// TODO: build a mechanism that uses the entitySets and keys params to create multiple locks so we don't have to lock the whole DB on write
+
+			// Lazy eval the database in case the connection hasn't been instantiated yet
+			Connection.GetDatabase();
+
+			var expiry = TimeSpan.FromSeconds(30);
+			var wait = TimeSpan.FromSeconds(10);
+			var retry = TimeSpan.FromSeconds(1);
+
+			var redLock = LazyRedLockFactory.Value.CreateLock(LockResource, expiry, wait, retry);
+			return redLock.IsAcquired ? redLock : null;
 		}
 
-		public void CommitTransaction(object cacheTransaction)
+		public void ReleaseLock(object @lock)
 		{
-			var transaction = (ITransaction)cacheTransaction;
-			transaction.Execute();
+			var redLock = (RedLock)@lock;
+			redLock.Dispose();
 		}
 
 		/// <summary>
@@ -400,6 +428,11 @@ namespace EFCache.Redis
 				key = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(key)));
 				return key;
 			}
+		}
+
+		public void Dispose()
+		{
+			LazyRedLockFactory.Value.Dispose();
 		}
 	}
 
