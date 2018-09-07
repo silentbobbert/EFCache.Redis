@@ -14,6 +14,7 @@ namespace EFCache.Redis
 {
 	public class RedisCache : IRedisCache, IDisposable
 	{
+		#region Private Vars
 		private const string DefaultCacheIdentifier = "__EFCache.Redis_EntitySetKey_";
 		private const string DefaultStatsIdentifier = "__EFCache.Redis_Stats_";
 		private const string DefaultQueryHashIdentifier = "__EFCache.Redis_Stats_.Queries";
@@ -64,6 +65,10 @@ redis.call('set', rsKey, ARGV[1])";
 		private static byte[] _invalidateSingleyKeyScriptSha1;
 		private static byte[] _putItemScriptSha1;
 
+		#endregion
+
+		#region Static Initialization
+
 		private static ConnectionMultiplexer Connection => LazyRedis.Value;
 
 		private static Lazy<ConnectionMultiplexer> ConnectAndLoadScripts()
@@ -88,6 +93,10 @@ redis.call('set', rsKey, ARGV[1])";
 			}
 			return r;
 		}
+
+		#endregion
+
+		#region Constructors
 
 		public RedisCache(string config) : this(ConfigurationOptions.Parse(config))
 		{
@@ -127,6 +136,10 @@ redis.call('set', rsKey, ARGV[1])";
 			_cacheIdentifier = cacheIdentifier;
 			_statsIdentifier = DefaultStatsIdentifier;
 		}
+
+		#endregion
+
+		#region ICache
 
 		public event EventHandler<RedisCacheException> CachingFailed;
 
@@ -284,6 +297,10 @@ redis.call('set', rsKey, ARGV[1])";
 			database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
 		}
 
+		#endregion
+
+		#region ILockableCache
+
 		public object Lock(IEnumerable<string> entitySets, IEnumerable<string> keys)
 		{
 			// TODO: build a mechanism that uses the entitySets and keys params to create multiple locks so we don't have to lock the whole DB on write
@@ -305,37 +322,10 @@ redis.call('set', rsKey, ARGV[1])";
 			redLock.Dispose();
 		}
 
-		/// <summary>
-		/// This provides a retry mechanism and throws without handling if retries are not successful.
-		/// This should only be used by the invalidation process. Gets and sets should be quick and
-		/// there are no data integrity issues if they fail.
-		/// An unsuccessful invalidation will cause the cache to become incoherent and should be avoided
-		/// at all costs.
-		/// </summary>
-		/// <param name="action"></param>
-		private static void PerformWithRetryBackoff(Action action)
-		{
-			var exceptionList = new List<Exception>();
-			// Attempt the action, plus up to RetryLimit additional attempts
-			for (var i = 0; i <= RetryLimit; i++)
-			{
-				try
-				{
-					action();
-					return;
-				}
-				catch (Exception e)
-				{
-					exceptionList.Add(e);
-					if (i < RetryLimit - 1)
-						Thread.Sleep(RetryBackoffs[i]);
-				}
-			}
+		#endregion
 
-			throw new AggregateException("Retry exception", exceptionList);
-		}
+		#region Statistics
 
-		// ReSharper disable once BuiltInTypeReferenceStyle
 		public Int64 Count
 		{
 			get
@@ -344,15 +334,6 @@ redis.call('set', rsKey, ARGV[1])";
 				var count = database.Multiplexer.GetEndPoints()
 					.Sum(endpoint => database.Multiplexer.GetServer(endpoint).Keys(pattern: "*").LongCount());
 				return count;
-			}
-		}
-
-		public void Purge()
-		{
-			var database = Connection.GetDatabase();
-			foreach (var endPoint in database.Multiplexer.GetEndPoints())
-			{
-				database.Multiplexer.GetServer(endPoint).FlushDatabase();
 			}
 		}
 
@@ -400,6 +381,10 @@ redis.call('set', rsKey, ARGV[1])";
 				.OrderBy(o => o.Query);
 		}
 
+		#endregion
+
+		#region Error Handling
+
 		protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
 		{
 			var handler = CachingFailed;
@@ -412,9 +397,40 @@ redis.call('set', rsKey, ARGV[1])";
 			handler(this, redisCacheException);
 		}
 
-		private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) =>
-			entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
+		/// <summary>
+		/// This provides a retry mechanism and throws without handling if retries are not successful.
+		/// This should only be used by the invalidation process. Gets and sets should be quick and
+		/// there are no data integrity issues if they fail.
+		/// An unsuccessful invalidation will cause the cache to become incoherent and should be avoided
+		/// at all costs.
+		/// </summary>
+		/// <param name="action"></param>
+		private static void PerformWithRetryBackoff(Action action)
+		{
+			var exceptionList = new List<Exception>();
+			// Attempt the action, plus up to RetryLimit additional attempts
+			for (var i = 0; i <= RetryLimit; i++)
+			{
+				try
+				{
+					action();
+					return;
+				}
+				catch (Exception e)
+				{
+					exceptionList.Add(e);
+					if (i < RetryLimit - 1)
+						Thread.Sleep(RetryBackoffs[i]);
+				}
+			}
 
+			throw new AggregateException("Retry exception", exceptionList);
+		}
+
+		#endregion
+
+		#region Utility
+		
 		private RedisKey AddCacheQualifier(string entitySet) => string.Concat(_cacheIdentifier, ".", entitySet);
 
 		private RedisKey AddStatsQualifier(string query) => string.Concat(_statsIdentifier, ".", query);
@@ -427,6 +443,19 @@ redis.call('set', rsKey, ARGV[1])";
 			{
 				key = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(key)));
 				return key;
+			}
+		}
+		private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) =>
+			entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
+
+		#endregion
+
+		public void Purge()
+		{
+			var database = Connection.GetDatabase();
+			foreach (var endPoint in database.Multiplexer.GetEndPoints())
+			{
+				database.Multiplexer.GetServer(endPoint).FlushDatabase();
 			}
 		}
 
