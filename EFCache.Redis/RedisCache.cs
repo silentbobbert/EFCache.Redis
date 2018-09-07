@@ -21,7 +21,7 @@ namespace EFCache.Redis
 		private const string HitsIdentifier = "hits";
 		private const string MissesIdentifier = "misses";
 		private const string InvalidationsIdentifier = "invalidations";
-		private const string LockResource = "lock-resource";
+		private const string GlobalLockResource = "lock-resource";
 
 		private const int RetryLimit = 3;
 		private static readonly int[] RetryBackoffs = { 250, 500, 1000 };
@@ -187,7 +187,7 @@ redis.call('set', rsKey, ARGV[1])";
 
 			if (EntryExpired(entry, now))
 			{
-				var redLock = Lock(null, new List<string>{hashedKey});
+				var redLock = Lock(null, hashedKey);
 				InvalidateItem(hashedKey);
 				ReleaseLock(redLock);
 				value = null;
@@ -203,7 +203,7 @@ redis.call('set', rsKey, ARGV[1])";
 				entry.LastAccess = now;
 				try
 				{
-					var redLock = Lock(null, new List<string>{hashedKey});
+					var redLock = Lock(null, hashedKey);
 					database.ObjectSet(hashedKey, entry);
 					ReleaseLock(redLock);
 				}
@@ -314,7 +314,7 @@ redis.call('set', rsKey, ARGV[1])";
 
 		#region ILockableCache
 
-		public object Lock(IEnumerable<string> entitySets, IEnumerable<string> keys)
+		public object Lock(IEnumerable<string> entitySets, string key)
 		{
 			// TODO: build a mechanism that uses the entitySets and keys params to create multiple locks so we don't have to lock the whole DB on write
 
@@ -325,7 +325,9 @@ redis.call('set', rsKey, ARGV[1])";
 			var wait = TimeSpan.FromSeconds(10);
 			var retry = TimeSpan.FromSeconds(1);
 
-			var redLock = LazyRedLockFactory.Value.CreateLock(LockResource, expiry, wait, retry);
+			var resource = key ?? GlobalLockResource;
+
+			var redLock = LazyRedLockFactory.Value.CreateLock(resource, expiry, wait, retry);
 			return redLock.IsAcquired ? redLock : null;
 		}
 
