@@ -3,25 +3,44 @@ using RedLockNet.SERedis.Configuration;
 using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using RedLockNet;
 
 namespace EFCache.Redis
 {
+	/// <inheritdoc cref="IRedisCache" />
+	/// <inheritdoc cref="IDisposable"/>
+	/// <summary>
+	/// This class implement ICache via IRedisCache. Provides for (potentially) atomic management of sql query result caching
+	/// via a mechanism of
+	/// a) Redis sets (one per entity set) containing references to keys for queries referencing
+	/// that entity set
+	/// b) Strings keyed on the hash of the sql query storing the result set
+	/// This class makes use of the RedLock algorithm https://redis.io/topics/distlock to offer a
+	/// mechanism for two phase-style commit via locks and lua scripts for writes to ensure
+	/// changes are atomic and can be serialized per entity set.
+	/// </summary>
 	public class RedisCache : IRedisCache, IDisposable
 	{
 		#region Private Vars
+		// Prefixes for cache keys
 		private const string DefaultCacheIdentifier = "__EFCache.Redis_EntitySetKey_";
+		private readonly string _cacheIdentifier;
+
 		private const string DefaultStatsIdentifier = "__EFCache.Redis_Stats_";
+		private readonly string _statsIdentifier;
 		private const string DefaultQueryHashIdentifier = "__EFCache.Redis_Stats_.Queries";
+
+		// String constants for stats set keys
 		private const string HitsIdentifier = "hits";
 		private const string MissesIdentifier = "misses";
 		private const string InvalidationsIdentifier = "invalidations";
-		private const string GlobalLockResource = "lock-resource";
 
 		private const int RetryLimit = 3;
 		private static readonly int[] RetryBackoffs = { 250, 500, 1000 };
@@ -30,14 +49,23 @@ namespace EFCache.Redis
 		private static string _redisConfig;
 		private static ConnectionMultiplexer _redis;
 
+		// Lazy instantiate the connection multiplexer per https://docs.microsoft.com/en-us/azure/redis-cache/cache-dotnet-how-to-use-azure-redis-cache
 		private static readonly Lazy<ConnectionMultiplexer> LazyRedis = ConnectAndLoadScripts();
 
+		// Lazy instantiate the RedLock factory AFTER the connection multiplexer is lazy instantiated
 		private static readonly Lazy<RedLockFactory> LazyRedLockFactory =
 			new Lazy<RedLockFactory>(() => RedLockFactory.Create(new List<RedLockMultiplexer> { new RedLockMultiplexer(Connection) }));
 
-		private readonly string _cacheIdentifier;
-		private readonly string _statsIdentifier;
+		#endregion
 
+		#region Lua Scripting
+		// Because the query entries and the sets referencing the query entries must be updated
+		// atomically, Lua scripting is used to ensure the atomicity of these operations.
+
+		// Script to iterate over all the entity sets and delete string entries and set members
+		// referenced by each of the entity sets. Returns the query keys so stats about those
+		// keys can be updated.
+		// Accepts a set of keys referencing the entity sets to invalidate
 		private const string InvalidateSetsScript =
 @"local queryKeys = {}
 for _, entitySetKey in ipairs(KEYS) do
@@ -49,31 +77,45 @@ for _, entitySetKey in ipairs(KEYS) do
 	 end
 end
 return queryKeys";
+		private static byte[] _invalidateSetsScriptSha1;
 
+		// Script to delete a single query entry and to remove it from any entity sets in which
+		// it is contained.
+		// Accepts the query key as the first key arg and the entity set keys as the remaining key args
 		private const string InvalidateSingleKeyScript =
 @"local queryKey = KEYS[1]
 for i = 2,table.getn(KEYS) do
 	 redis.call('srem', KEYS[i], queryKey)
 end
 redis.call('del', queryKey)";
+		private static byte[] _invalidateSingleyKeyScriptSha1;
 
+		// Script to create a new query/result set entry. Add the string entry itself and add
+		// entries to any result sets used by the query
+		// Accepts the query key as the first key arg and the entity set keys as the remaining key args
 		private const string PutItemScript =
 @"local rsKey = KEYS[1]
 for i = 2,table.getn(KEYS) do
 	 redis.call('sadd', KEYS[i], rsKey)
 end
 redis.call('set', rsKey, ARGV[1])";
-
-		private static byte[] _invalidateSetsScriptSha1;
-		private static byte[] _invalidateSingleyKeyScriptSha1;
 		private static byte[] _putItemScriptSha1;
 
 		#endregion
 
 		#region Static Initialization
 
+		/// <summary>
+		/// Get the connection from the Lazy initializer
+		/// </summary>
 		private static ConnectionMultiplexer Connection => LazyRedis.Value;
 
+		/// <summary>
+		/// Depending on how the instance was constructed, create a new (or use the existing)
+		/// connection multiplexer. Load the Lua scripts and save the hashes for calling before
+		/// returing the lazy initialized connection multiplexer
+		/// </summary>
+		/// <returns>A lazy initialized connection multiplexer that will load the Lua scripts on first use</returns>
 		private static Lazy<ConnectionMultiplexer> ConnectAndLoadScripts()
 		{
 			return _redis != null
@@ -84,17 +126,22 @@ redis.call('set', rsKey, ARGV[1])";
 						: ConnectionMultiplexer.Connect(_configurationOptions)));
 		}
 
-		private static ConnectionMultiplexer LoadScripts(ConnectionMultiplexer r)
+		/// <summary>
+		/// Load the Lua scripts into every instance of the Redis server in the cluster
+		/// </summary>
+		/// <param name="redis">The instance of the connection muliplexer</param>
+		/// <returns>The provided instance of the connection multiplexer</returns>
+		private static ConnectionMultiplexer LoadScripts(ConnectionMultiplexer redis)
 		{
-			var endpoints = r.GetEndPoints();
+			var endpoints = redis.GetEndPoints();
 			foreach (var endpoint in endpoints)
 			{
-				var server = r.GetServer(endpoint);
+				var server = redis.GetServer(endpoint);
 				_invalidateSetsScriptSha1 = server.ScriptLoad(InvalidateSetsScript);
 				_invalidateSingleyKeyScriptSha1 = server.ScriptLoad(InvalidateSingleKeyScript);
 				_putItemScriptSha1 = server.ScriptLoad(PutItemScript);
 			}
-			return r;
+			return redis;
 		}
 
 		#endregion
@@ -144,17 +191,34 @@ redis.call('set', rsKey, ARGV[1])";
 
 		#region ICache
 
+		/// <summary>
+		/// Handler that can be supplied in the event of caching exceptions.
+		/// If no handler is provided, the exception is allowed to be thrown.
+		/// Otherwise, the handler is responsible for rethrowing if applicable
+		/// </summary>
 		public event EventHandler<RedisCacheException> CachingFailed;
 
+		/// <summary>
+		/// If true, send hit/miss/invalidation stats per sql query to store in
+		/// Redis itself
+		/// </summary>
 		public bool ShouldCollectStatistics { get; set; } = false;
 
+		/// <summary>
+		/// Given a query, hash the query and try to locate results of the
+		/// query as a string (byte array) value in Redis at the hashed key.
+		/// If the caching policy uses expiration, update the LastAccess timestamp
+		/// to the current time.
+		/// </summary>
+		/// <param name="key">The database query itself</param>
+		/// <param name="value">The results of the sql query to be returned</param>
+		/// <returns>A boolean indicating whether the entry was found at the provided key</returns>
 		public bool GetItem(string key, out object value)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
 
 			var database = Connection.GetDatabase();
 			var hashedKey = HashKey(key);
-			var now = DateTimeOffset.Now;
 
 			try
 			{
@@ -170,8 +234,10 @@ redis.call('set', rsKey, ARGV[1])";
 			{
 				try
 				{
+					// Add the sql query to the set of all queries tracked, hash of sql as key, sql itself as value
 					database.HashSet(DefaultQueryHashIdentifier,
 						new[] { new HashEntry(hashedKey, key) }, CommandFlags.FireAndForget);
+					// Increment the stat entry for the given sql query according to whether it was found or not
 					database.HashIncrement(AddStatsQualifier(hashedKey), value == null ? MissesIdentifier : HitsIdentifier, 1,
 						CommandFlags.FireAndForget);
 				}
@@ -180,44 +246,44 @@ redis.call('set', rsKey, ARGV[1])";
 					OnCachingFailed(e);
 				}
 			}
-
 			if (value == null) return false;
 
+			// If we are not using expiry (as indicated by values < MaxValue), return
 			var entry = (CacheEntry)value;
-
+			var now = DateTimeOffset.Now;
+			if (entry.AbsoluteExpiration == DateTimeOffset.MaxValue && entry.SlidingExpiration == TimeSpan.MaxValue) return true;
+			
+			// TODO: Handle locking relative to expiry
 			if (EntryExpired(entry, now))
 			{
-				var redLock = Lock(null, hashedKey);
 				InvalidateItem(hashedKey);
-				ReleaseLock(redLock);
 				value = null;
+				return false;
 			}
-			else
+
+			entry.LastAccess = now;
+			value = entry;
+			try
 			{
-				value = entry.Value;
-				
-				// If not expiring keys, no need to make another Redis call
-				if (entry.AbsoluteExpiration == DateTimeOffset.MaxValue && entry.SlidingExpiration == TimeSpan.MaxValue) return true;
-
-				// Update the entry in Redis to save the new LastAccess value.
-				entry.LastAccess = now;
-				try
-				{
-					var redLock = Lock(null, hashedKey);
-					database.ObjectSet(hashedKey, entry);
-					ReleaseLock(redLock);
-				}
-				catch (Exception e)
-				{
-					// Eventhough an error has occured, we will return true, because the retrieval of the entity was a success
-					OnCachingFailed(e);
-				}
-				return true;
+				database.ObjectSet(hashedKey, entry);
 			}
-
-			return false;
+			catch (Exception e)
+			{
+				// Even though an error has occured, we will return true, because the retrieval of the entity was a success
+				OnCachingFailed(e);
+			}
+			return true;
 		}
 
+		/// <summary>
+		/// Add sql result set as string entry in Redis. Store result set at hash of sql query and add the hash of sql query
+		/// to the set of entity sets involved in the query. Use a Lua script to ensure this operation happens atomically
+		/// </summary>
+		/// <param name="key">The text of the SQL query</param>
+		/// <param name="value">The results of the query (byte array)</param>
+		/// <param name="dependentEntitySets">The entity sets (tables) used by the query</param>
+		/// <param name="slidingExpiration">The relative time for expiration</param>
+		/// <param name="absoluteExpiration">The absolute expiration time</param>
 		public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration,
 			DateTimeOffset absoluteExpiration)
 		{
@@ -243,6 +309,12 @@ redis.call('set', rsKey, ARGV[1])";
 			}
 		}
 
+		/// <summary>
+		/// Since a sql database write is about to happen, remove all cached sql query results referencing the provided
+		/// entity sets (tables). Then remove the actual entity set values.
+		/// Use a Lua script to ensure that this operation happens atomically.
+		/// </summary>
+		/// <param name="entitySets">The entity sets used by the sql insert, update, delete being issued</param>
 		public void InvalidateSets(IEnumerable<string> entitySets)
 		{
 			// ReSharper disable PossibleMultipleEnumeration
@@ -253,13 +325,14 @@ redis.call('set', rsKey, ARGV[1])";
 
 			//TODO: Remove this!!
 			var random = new Random();
-			var queryKeys = new System.Collections.Generic.HashSet<string>();
+			var queryKeys = new HashSet<string>();
 			PerformWithRetryBackoff(() =>
 			{
 				//TODO: Remove this!!
 				//if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
 
 				var result = database.ScriptEvaluate(_invalidateSetsScriptSha1, setKeys.ToArray());
+				// Result is the set of keys for the queries that were removed. Used below for stats
 				foreach (var queryKey in (string[])result)
 				{
 					queryKeys.Add(queryKey);
@@ -269,17 +342,24 @@ redis.call('set', rsKey, ARGV[1])";
 
 			if (!ShouldCollectStatistics) return;
 
+			// Update the stats for the entity sets to indicate the whole set was invalidated
 			foreach (var setKey in setKeys)
 			{
 				database.HashIncrement(AddStatsQualifier(HashKey(setKey)), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
 			}
 
+			// Update the stats for the queries removed from Redis indicating they were invalidated
 			foreach (var hashedKey in queryKeys)
 			{
 				database.HashIncrement(AddStatsQualifier(hashedKey), InvalidationsIdentifier, 1, CommandFlags.FireAndForget);
 			}
 		}
 
+		/// <summary>
+		/// Remove a single key from Redis and remove it from any entity sets that are referencing it.
+		/// Use a Lua script to ensure that this operation happens atomically.
+		/// </summary>
+		/// <param name="key"></param>
 		public void InvalidateItem(string key)
 		{
 			key.GuardAgainstNullOrEmpty(nameof(key));
@@ -303,7 +383,7 @@ redis.call('set', rsKey, ARGV[1])";
 				database.ScriptEvaluate(_invalidateSingleyKeyScriptSha1, keys.ToArray());
 			});
 
-			// Because we don't want to include stats tracking in the, we fire this off regardless of whether the transaction
+			// Because we don't want to include stats tracking in the lua script, we fire this off regardless of whether the invalidation
 			// succeeded. The stats may not be 100% accurate but that's the tradeoff for simplifying the primary logic
 			if (!ShouldCollectStatistics) return;
 
@@ -314,10 +394,20 @@ redis.call('set', rsKey, ARGV[1])";
 
 		#region ILockableCache
 
-		public object Lock(IEnumerable<string> entitySets, string key)
+		/// <summary>
+		/// Use the RedLock algorithm to create a mutex lock on all of the affected entity sets with
+		/// generally sane default expiry, wait, and retry values. If locks are not acquired on all
+		/// entity sets, return null indicating lock was not possible. Because we can only proceed
+		/// if all locks are acquired, deadlocks should not be possible.
+		///
+		/// If consistency is a requirement in your application, use this method. These locks should
+		/// be acquired prior to any database insert, update, or delete. Once the
+		/// db operation is successful, the locks should be released.
+		/// </summary>
+		/// <param name="entitySets">Entity sets to acquire locks for</param>
+		/// <returns>A set of IRedLock objects</returns>
+		public object Lock(IEnumerable<string> entitySets)
 		{
-			// TODO: build a mechanism that uses the entitySets and keys params to create multiple locks so we don't have to lock the whole DB on write
-
 			// Lazy eval the database in case the connection hasn't been instantiated yet
 			Connection.GetDatabase();
 
@@ -325,16 +415,31 @@ redis.call('set', rsKey, ARGV[1])";
 			var wait = TimeSpan.FromSeconds(10);
 			var retry = TimeSpan.FromSeconds(1);
 
-			var resource = key ?? GlobalLockResource;
+			var redLocks = new List<IRedLock>();
+			redLocks.AddRange(entitySets.Select(entitySet => LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry)));
 
-			var redLock = LazyRedLockFactory.Value.CreateLock(resource, expiry, wait, retry);
-			return redLock.IsAcquired ? redLock : null;
+			if (redLocks.All(rl => rl.IsAcquired))
+				return redLocks;
+
+			foreach (var redLock in redLocks)
+			{
+				redLock.Dispose();
+			}
+			return null;
 		}
 
-		public void ReleaseLock(object @lock)
+
+		/// <summary>
+		/// Given a set of IRedLock objects, release them
+		/// </summary>
+		/// <param name="locks">A set of IRedLock objects</param>
+		public void ReleaseLock(object locks)
 		{
-			var redLock = (RedLock)@lock;
-			redLock.Dispose();
+			var redLocks = (List<IRedLock>)locks;
+			foreach (var redLock in redLocks)
+			{
+				redLock.Dispose();
+			}
 		}
 
 		#endregion
