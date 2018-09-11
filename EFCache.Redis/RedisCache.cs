@@ -94,11 +94,11 @@ redis.call('del', queryKey)";
 		// entries to any result sets used by the query
 		// Accepts the query key as the first key arg and the entity set keys as the remaining key args
 		private const string PutItemScript =
-@"local rsKey = KEYS[1]
+@"local queryKey = KEYS[1]
 for i = 2,table.getn(KEYS) do
-	 redis.call('sadd', KEYS[i], rsKey)
+	 redis.call('sadd', KEYS[i], queryKey)
 end
-redis.call('set', rsKey, ARGV[1])";
+redis.call('set', queryKey, ARGV[1])";
 		private static byte[] _putItemScriptSha1;
 
 		#endregion
@@ -248,7 +248,7 @@ redis.call('set', rsKey, ARGV[1])";
 			}
 			if (value == null) return false;
 
-			// If we are not using expiry (as indicated by values < MaxValue), return
+			// If we are not using expiry (as indicated by values == MaxValue), return
 			var entry = (CacheEntry)value;
 			var now = DateTimeOffset.Now;
 			if (entry.AbsoluteExpiration == DateTimeOffset.MaxValue && entry.SlidingExpiration == TimeSpan.MaxValue) return true;
@@ -299,7 +299,7 @@ redis.call('set', rsKey, ARGV[1])";
 
 			try
 			{
-				var serializedValue = StackExchangeRedisExtensions.Serialize(new CacheEntry(value, entitySets.ToArray(), slidingExpiration,
+				var serializedValue = StackExchangeRedisExtensions.Serialize(new CacheEntry(value, entitySets, slidingExpiration,
 					absoluteExpiration));
 				database.ScriptEvaluate(_putItemScriptSha1, keys.ToArray(), new RedisValue[]{serializedValue});
 			}
@@ -323,14 +323,9 @@ redis.call('set', rsKey, ARGV[1])";
 			var database = Connection.GetDatabase();
 			var setKeys = entitySets.Select(AddCacheQualifier);
 
-			//TODO: Remove this!!
-			var random = new Random();
 			var queryKeys = new HashSet<string>();
 			PerformWithRetryBackoff(() =>
 			{
-				//TODO: Remove this!!
-				//if (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
-
 				var result = database.ScriptEvaluate(_invalidateSetsScriptSha1, setKeys.ToArray());
 				// Result is the set of keys for the queries that were removed. Used below for stats
 				foreach (var queryKey in (string[])result)
@@ -367,19 +362,13 @@ redis.call('set', rsKey, ARGV[1])";
 			var database = Connection.GetDatabase();
 			var hashedKey = HashKey(key);
 
-			var entry = database.ObjectGet<CacheEntry>(key);
+			var entry = database.ObjectGet<CacheEntry>(hashedKey);
 			if (entry == null) return;
-			var keys = new List<RedisKey> {key};
+			var keys = new List<RedisKey> {hashedKey};
 			keys.AddRange(entry.EntitySets.Select(AddCacheQualifier));
-
-			//TODO: Remove this!!
-			var random = new Random();
 
 			PerformWithRetryBackoff(() =>
 			{
-				//TODO: Remove this!!
-				// (new[] { 0 }.Contains(random.Next() % 3)) throw new Exception("Chaos monkey");
-
 				database.ScriptEvaluate(_invalidateSingleyKeyScriptSha1, keys.ToArray());
 			});
 
