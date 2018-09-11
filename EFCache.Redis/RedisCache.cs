@@ -397,8 +397,8 @@ redis.call('set', rsKey, ARGV[1])";
 		/// <summary>
 		/// Use the RedLock algorithm to create a mutex lock on all of the affected entity sets with
 		/// generally sane default expiry, wait, and retry values. If locks are not acquired on all
-		/// entity sets, return null indicating lock was not possible. Because we can only proceed
-		/// if all locks are acquired, deadlocks should not be possible.
+		/// entity sets, return null indicating lock was not possible. Deadlocks are actually possible
+		/// here. With reasonable wait and retry values, deadlocks should not result in failure.
 		///
 		/// If consistency is a requirement in your application, use this method. These locks should
 		/// be acquired prior to any database insert, update, or delete. Once the
@@ -446,7 +446,11 @@ redis.call('set', rsKey, ARGV[1])";
 
 		#region Statistics
 
-		public Int64 Count
+		/// <summary>
+		/// Return the number of keys in the entire Redis store. This will include
+		/// EntitySet sets and, potentially, statistics keys
+		/// </summary>
+		public long Count
 		{
 			get
 			{
@@ -457,16 +461,32 @@ redis.call('set', rsKey, ARGV[1])";
 			}
 		}
 
+		/// <summary>
+		/// This method returns a list of statistics about each query in Redis,
+		/// including the sql query and its parameters, hits, misses, and invalidations.
+		/// This method uses HashScan to get results per page.
+		/// TODO: Accept params for sorting and paging
+		/// </summary>
+		/// <returns>A list of query stats</returns>
 		public IEnumerable<QueryStatistics> GetStatistics()
 		{
 			var database = Connection.GetDatabase();
-			var queries = database.HashGetAll(DefaultQueryHashIdentifier);
-			var allStats = queries.Select(q =>
-				new StatResult
+			var queryEntries = database.HashScan(DefaultQueryHashIdentifier);
+			var allStats = new List<StatResult>();
+			foreach (var queryEntry in queryEntries)
+			{
+				var statsEntries = database.HashScan(AddStatsQualifier(queryEntry.Name.ToString()));
+				var hashEntries = new List<HashEntry>();
+				foreach (var statsEntry in statsEntries)
 				{
-					Query = q,
-					Stats = database.HashGetAll(AddStatsQualifier(q.Name.ToString()))
-				}).ToList();
+					hashEntries.Add(statsEntry);
+				}
+				allStats.Add(new StatResult
+				{
+					Query = queryEntry,
+					Stats = hashEntries.ToArray()
+				});
+			}
 			return allStats.Select(r =>
 				{
 					var stats = r.Stats;
@@ -505,6 +525,13 @@ redis.call('set', rsKey, ARGV[1])";
 
 		#region Error Handling
 
+		/// <summary>
+		/// This method is called when any of the caching operation encounters an exception.
+		/// If a <see cref="CachingFailed"/> handler has been provided, pass the exception
+		/// to the handler for processing/rethrowing, etc. Otherwise just throw.
+		/// </summary>
+		/// <param name="e">The exception encountered in one of the caching operations</param>
+		/// <param name="memberName">The method in which the exception occurred</param>
 		protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
 		{
 			var handler = CachingFailed;
@@ -518,11 +545,7 @@ redis.call('set', rsKey, ARGV[1])";
 		}
 
 		/// <summary>
-		/// This provides a retry mechanism and throws without handling if retries are not successful.
-		/// This should only be used by the invalidation process. Gets and sets should be quick and
-		/// there are no data integrity issues if they fail.
-		/// An unsuccessful invalidation will cause the cache to become incoherent and should be avoided
-		/// at all costs.
+		/// This method provides a retry mechanism and throws without handling if retries are not successful.
 		/// </summary>
 		/// <param name="action"></param>
 		private static void PerformWithRetryBackoff(Action action)
@@ -555,6 +578,12 @@ redis.call('set', rsKey, ARGV[1])";
 
 		private RedisKey AddStatsQualifier(string query) => string.Concat(_statsIdentifier, ".", query);
 
+		/// <summary>
+		/// Return a hash of the SQL query for use as a Redis key. In the unlikely event the query is
+		/// less than 128 bytes, just use it. Even though that's kind of weird.
+		/// </summary>
+		/// <param name="key">The SQL query</param>
+		/// <returns>A string - normally the SHA1 hash of the SQL query</returns>
 		private static string HashKey(string key)
 		{
 			//Looking up large Keys in Redis can be expensive (comparing Large Strings), so if keys are large, hash them, otherwise if keys are short just use as-is
@@ -565,6 +594,7 @@ redis.call('set', rsKey, ARGV[1])";
 				return key;
 			}
 		}
+
 		private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) =>
 			entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
 
