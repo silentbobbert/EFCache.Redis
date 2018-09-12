@@ -338,7 +338,6 @@ redis.call('set', queryKey, ARGV[1])";
 				}
 			});
 			// ReSharper restore PossibleMultipleEnumeration
-			Debug.WriteLine($"Entity sets invalidated {string.Join(", ", entitySets)}");
 
 			if (!ShouldCollectStatistics) return;
 
@@ -419,11 +418,7 @@ redis.call('set', queryKey, ARGV[1])";
 				
 
 			if (lockedEntitySets.All(les => ((IRedLock)les.Lock).IsAcquired))
-			{
-				Debug.WriteLine($"Lock succeeded {string.Join(", ", sets)}");
 				return lockedEntitySets;
-			}
-			Debug.WriteLine($"Lock failed {string.Join(", ", sets)}");
 			foreach (var redLock in lockedEntitySets.Select(les => les.Lock).Cast<IRedLock>())
 			{
 				redLock.Dispose();
@@ -443,7 +438,6 @@ redis.call('set', queryKey, ARGV[1])";
 			{
 				redLock.Dispose();
 			}
-			Debug.WriteLine($"Lock released {string.Join(", ", redLocks.Select(rl => rl.Resource))}");
 		}
 
 		#endregion
