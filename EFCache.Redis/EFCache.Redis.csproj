@@ -85,6 +85,7 @@
     <Compile Include="CacheEntry.cs" />
     <Compile Include="Guard.cs" />
     <Compile Include="IRedisCache.cs" />
+    <Compile Include="LockedEntitySet.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>

@@ -251,7 +251,11 @@ redis.call('set', queryKey, ARGV[1])";
 			// If we are not using expiry (as indicated by values == MaxValue), return
 			var entry = (CacheEntry)value;
 			var now = DateTimeOffset.Now;
-			if (entry.AbsoluteExpiration == DateTimeOffset.MaxValue && entry.SlidingExpiration == TimeSpan.MaxValue) return true;
+			if (entry.AbsoluteExpiration == DateTimeOffset.MaxValue && entry.SlidingExpiration == TimeSpan.MaxValue)
+			{
+				value = entry.Value;
+				return true;
+			}
 			
 			// TODO: Handle locking relative to expiry
 			if (EntryExpired(entry, now))
@@ -334,6 +338,7 @@ redis.call('set', queryKey, ARGV[1])";
 				}
 			});
 			// ReSharper restore PossibleMultipleEnumeration
+			Debug.WriteLine($"Entity sets invalidated {string.Join(", ", entitySets)}");
 
 			if (!ShouldCollectStatistics) return;
 
@@ -395,26 +400,35 @@ redis.call('set', queryKey, ARGV[1])";
 		/// </summary>
 		/// <param name="entitySets">Entity sets to acquire locks for</param>
 		/// <returns>A set of IRedLock objects</returns>
-		public object Lock(IEnumerable<string> entitySets)
+		public List<ILockedEntitySet> Lock(IEnumerable<string> entitySets)
 		{
 			// Lazy eval the database in case the connection hasn't been instantiated yet
 			Connection.GetDatabase();
 
-			var expiry = TimeSpan.FromSeconds(30);
-			var wait = TimeSpan.FromSeconds(10);
+			var expiry = TimeSpan.FromSeconds(5);
+			var wait = TimeSpan.FromSeconds(2);
 			var retry = TimeSpan.FromSeconds(1);
 
-			var redLocks = new List<IRedLock>();
-			redLocks.AddRange(entitySets.Select(entitySet => LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry)));
+			var lockedEntitySets = new List<ILockedEntitySet>();
+			var sets = entitySets as string[] ?? entitySets.ToArray();
+			lockedEntitySets.AddRange(sets.Select(entitySet => new LockedEntitySet
+			{
+				EntitySet = entitySet,
+				Lock = LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry)
+			}));
+				
 
-			if (redLocks.All(rl => rl.IsAcquired))
-				return redLocks;
-
-			foreach (var redLock in redLocks)
+			if (lockedEntitySets.All(les => ((IRedLock)les.Lock).IsAcquired))
+			{
+				Debug.WriteLine($"Lock succeeded {string.Join(", ", sets)}");
+				return lockedEntitySets;
+			}
+			Debug.WriteLine($"Lock failed {string.Join(", ", sets)}");
+			foreach (var redLock in lockedEntitySets.Select(les => les.Lock).Cast<IRedLock>())
 			{
 				redLock.Dispose();
 			}
-			return null;
+			throw new Exception("Could not acquire lock");
 		}
 
 
@@ -422,13 +436,14 @@ redis.call('set', queryKey, ARGV[1])";
 		/// Given a set of IRedLock objects, release them
 		/// </summary>
 		/// <param name="locks">A set of IRedLock objects</param>
-		public void ReleaseLock(object locks)
+		public void ReleaseLock(IEnumerable<ILockedEntitySet> locks)
 		{
-			var redLocks = (List<IRedLock>)locks;
+			var redLocks = locks.Select(les => (IRedLock)les.Lock).ToList();
 			foreach (var redLock in redLocks)
 			{
 				redLock.Dispose();
 			}
+			Debug.WriteLine($"Lock released {string.Join(", ", redLocks.Select(rl => rl.Resource))}");
 		}
 
 		#endregion
