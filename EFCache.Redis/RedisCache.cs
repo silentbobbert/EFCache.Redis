@@ -404,8 +404,8 @@ redis.call('set', queryKey, ARGV[1])";
 			// Lazy eval the database in case the connection hasn't been instantiated yet
 			Connection.GetDatabase();
 
-			var expiry = TimeSpan.FromSeconds(5);
-			var wait = TimeSpan.FromSeconds(2);
+			var expiry = TimeSpan.FromSeconds(30);
+			var wait = TimeSpan.FromSeconds(10);
 			var retry = TimeSpan.FromSeconds(1);
 
 			var lockedEntitySets = new List<ILockedEntitySet>();
