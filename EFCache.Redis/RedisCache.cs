@@ -336,6 +336,8 @@ redis.call('set', queryKey, ARGV[1])";
 				{
 					queryKeys.Add(queryKey);
 				}
+
+				return null;
 			});
 			// ReSharper restore PossibleMultipleEnumeration
 
@@ -374,6 +376,7 @@ redis.call('set', queryKey, ARGV[1])";
 			PerformWithRetryBackoff(() =>
 			{
 				database.ScriptEvaluate(_invalidateSingleyKeyScriptSha1, keys.ToArray());
+				return null;
 			});
 
 			// Because we don't want to include stats tracking in the lua script, we fire this off regardless of whether the invalidation
@@ -408,22 +411,26 @@ redis.call('set', queryKey, ARGV[1])";
 			var wait = TimeSpan.FromSeconds(10);
 			var retry = TimeSpan.FromSeconds(1);
 
-			var lockedEntitySets = new List<ILockedEntitySet>();
-			var sets = entitySets as string[] ?? entitySets.ToArray();
-			lockedEntitySets.AddRange(sets.Select(entitySet => new LockedEntitySet
+			var result = (List<ILockedEntitySet>)PerformWithRetryBackoff(() =>
 			{
-				EntitySet = entitySet,
-				Lock = LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry)
-			}));
+				var lockedEntitySets = new List<ILockedEntitySet>();
+				var sets = entitySets as string[] ?? entitySets.ToArray();
+				lockedEntitySets.AddRange(sets.Select(entitySet => new LockedEntitySet
+				{
+					EntitySet = entitySet,
+					Lock = LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry)
+				}));
 				
 
-			if (lockedEntitySets.All(les => ((IRedLock)les.Lock).IsAcquired))
-				return lockedEntitySets;
-			foreach (var redLock in lockedEntitySets.Select(les => les.Lock).Cast<IRedLock>())
-			{
-				redLock.Dispose();
-			}
-			throw new Exception($"Could not acquire lock for {string.Join(", ", sets)}");
+				if (lockedEntitySets.All(les => ((IRedLock)les.Lock).IsAcquired))
+					return lockedEntitySets;
+				foreach (var redLock in lockedEntitySets.Select(les => les.Lock).Cast<IRedLock>())
+				{
+					redLock.Dispose();
+				}
+				throw new Exception($"Could not acquire lock for {string.Join(", ", sets)}");
+			});
+			return result;
 		}
 
 
@@ -546,7 +553,7 @@ redis.call('set', queryKey, ARGV[1])";
 		/// This method provides a retry mechanism and throws without handling if retries are not successful.
 		/// </summary>
 		/// <param name="action"></param>
-		private static void PerformWithRetryBackoff(Action action)
+		private static object PerformWithRetryBackoff(Func<object> action)
 		{
 			var exceptionList = new List<Exception>();
 			// Attempt the action, plus up to RetryLimit additional attempts
@@ -554,8 +561,7 @@ redis.call('set', queryKey, ARGV[1])";
 			{
 				try
 				{
-					action();
-					return;
+					return action();
 				}
 				catch (Exception e)
 				{
