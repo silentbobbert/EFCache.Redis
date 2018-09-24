@@ -423,7 +423,7 @@ redis.call('set', queryKey, ARGV[1])";
 			{
 				redLock.Dispose();
 			}
-			throw new Exception("Could not acquire lock");
+			throw new Exception($"Could not acquire lock for {string.Join(", ", sets)}");
 		}
 
 
