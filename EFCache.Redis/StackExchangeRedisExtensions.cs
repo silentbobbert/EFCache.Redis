@@ -24,7 +24,7 @@ namespace EFCache.Redis
             return cache.StringSetAsync(key, Serialize(value));
         }
 
-        private static byte[] Serialize<T>(T o) where T : class
+        public static byte[] Serialize<T>(T o) where T : class
         {
             if (o == null) return null;
             var binaryFormatter = new BinaryFormatter();

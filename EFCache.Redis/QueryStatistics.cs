@@ -7,8 +7,8 @@ namespace EFCache.Redis {
         public string Query { get; set; }
         public string QueryHash { get; set; }
         public IEnumerable<string> QueryParams { get; set; }
-        public Int64 Hits { get; set; }
-        public Int64 Misses { get; set; }
-        public Int64 Invalidations { get; set; }
+        public long Hits { get; set; }
+        public long Misses { get; set; }
+        public long Invalidations { get; set; }
     }
 }
