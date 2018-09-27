@@ -19,6 +19,13 @@ namespace EFCache.Redis
 		/// <summary>
 		/// The lock that can be released
 		/// </summary>
-		public object Lock { get; set; }
+		public ICachedEntitySetLock Lock { get; set; }
+
+		public void Dispose()
+		{
+			Lock.Unlock();
+		}
 	}
+
+
 }
