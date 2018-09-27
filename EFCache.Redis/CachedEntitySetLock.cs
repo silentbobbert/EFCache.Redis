@@ -1,8 +1,11 @@
+using System;
+using RedLockNet;
+
 namespace EFCache.Redis {
 	public class CachedEntitySetLock : ICachedEntitySetLock
 	{
-		private readonly IRedlock _redlock;
-		public CachedEntitySetLock(IRedlock redlock)
+		private readonly IRedLock _redlock;
+		public CachedEntitySetLock(IRedLock redlock)
 		{
 			_redlock = redlock;
 		}
