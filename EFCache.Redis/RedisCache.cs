@@ -418,7 +418,7 @@ redis.call('set', queryKey, ARGV[1])";
 				lockedEntitySets.AddRange(sets.Select(entitySet => new LockedEntitySet
 				{
 					EntitySet = entitySet,
-					Lock = new CachedEntitySetLock(LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry))
+					Lock = LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry)
 				}));
 				
 
@@ -440,10 +440,10 @@ redis.call('set', queryKey, ARGV[1])";
 		/// <param name="locks">A set of IRedLock objects</param>
 		public void ReleaseLock(IEnumerable<ILockedEntitySet> locks)
 		{
-			var cachedEntitySetLocks = locks.Select(les => (CachedEntitySetLock)les.Lock).ToList();
+			var cachedEntitySetLocks = locks.Select(les =>les.Lock).ToList();
 			foreach (var cachedEntitySetLock in cachedEntitySetLocks)
 			{
-				cachedEntitySetLock.Unlock();
+				cachedEntitySetLock.Dispose();
 			}
 		}
 

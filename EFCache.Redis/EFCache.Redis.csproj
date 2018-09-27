@@ -82,7 +82,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CachedEntitySetLock.cs" />
     <Compile Include="CacheEntry.cs" />
     <Compile Include="Guard.cs" />
     <Compile Include="IRedisCache.cs" />
