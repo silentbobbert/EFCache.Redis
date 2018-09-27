@@ -1,6 +1,3 @@
-using RedLockNet.SERedis;
-using RedLockNet.SERedis.Configuration;
-using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,7 +7,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using RedLockNet;
 
 namespace EFCache.Redis
 {
@@ -418,7 +414,7 @@ redis.call('set', queryKey, ARGV[1])";
 				lockedEntitySets.AddRange(sets.Select(entitySet => new LockedEntitySet
 				{
 					EntitySet = entitySet,
-					Lock = LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry)
+					Lock = new CachedEntitySetLock(LazyRedLockFactory.Value.CreateLock(entitySet, expiry, wait, retry))
 				}));
 				
 
@@ -440,10 +436,10 @@ redis.call('set', queryKey, ARGV[1])";
 		/// <param name="locks">A set of IRedLock objects</param>
 		public void ReleaseLock(IEnumerable<ILockedEntitySet> locks)
 		{
-			var redLocks = locks.Select(les => (IRedLock)les.Lock).ToList();
-			foreach (var redLock in redLocks)
+			var cachedEntitySetLocks = locks.Select(les => (CachedEntitySetLock)les.Lock).ToList();
+			foreach (var cachedEntitySetLock in cachedEntitySetLocks)
 			{
-				redLock.Dispose();
+				cachedEntitySetLock.Unlock();
 			}
 		}
 
