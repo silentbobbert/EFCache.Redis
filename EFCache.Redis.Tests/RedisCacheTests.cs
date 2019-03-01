@@ -29,9 +29,7 @@ namespace EFCache.Redis.Tests
 
             cache.PutItem("key", item, new string[0], TimeSpan.MaxValue, DateTimeOffset.MaxValue);
 
-            object fromCache;
-
-            Assert.IsTrue(cache.GetItem("key", out fromCache));
+            Assert.IsTrue(cache.GetItem("key", out var fromCache));
             Assert.AreEqual(item.Message, ((TestObject)fromCache).Message);
 
             Assert.IsTrue(cache.GetItem("key", out fromCache));
@@ -46,8 +44,7 @@ namespace EFCache.Redis.Tests
 
             cache.PutItem("key", item, new string[0], TimeSpan.MaxValue, DateTimeOffset.Now.AddMinutes(-10));
 
-            object fromCache;
-            Assert.IsFalse(cache.GetItem("key", out fromCache));
+            Assert.IsFalse(cache.GetItem("key", out var fromCache));
             Assert.IsNull(fromCache);
         }
 
@@ -59,8 +56,7 @@ namespace EFCache.Redis.Tests
 
             cache.PutItem("key", item, new string[0], TimeSpan.Zero.Subtract(new TimeSpan(10000)), DateTimeOffset.MaxValue);
 
-            object fromCache;
-            Assert.IsFalse(cache.GetItem("key", out fromCache));
+            Assert.IsFalse(cache.GetItem("key", out var fromCache));
             Assert.IsNull(fromCache);
         }
 
@@ -97,11 +93,10 @@ namespace EFCache.Redis.Tests
 
             cache.InvalidateSets(new[] { "ES1", "ES2" });
 
-            object item;
-            Assert.IsFalse(cache.GetItem("1", out item));
-            Assert.IsFalse(cache.GetItem("2", out item));
-            Assert.IsFalse(cache.GetItem("3", out item));
-            Assert.IsTrue(cache.GetItem("4", out item));
+            Assert.IsFalse(cache.GetItem("1", out _));
+            Assert.IsFalse(cache.GetItem("2", out _));
+            Assert.IsFalse(cache.GetItem("3", out _));
+            Assert.IsTrue(cache.GetItem("4", out _));
         }
 
         [TestMethod]
@@ -112,8 +107,7 @@ namespace EFCache.Redis.Tests
             cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
             cache.InvalidateItem("1");
 
-            object item;
-            Assert.IsFalse(cache.GetItem("1", out item));
+            Assert.IsFalse(cache.GetItem("1", out _));
         }
 
         [TestMethod]
@@ -150,18 +144,15 @@ namespace EFCache.Redis.Tests
 
             Assert.AreEqual(0, cache.Count);
 
-            object item;
-            Assert.IsFalse(cache.GetItem("1", out item));
-            Assert.IsFalse(cache.GetItem("2", out item));
+            Assert.IsFalse(cache.GetItem("1", out _));
+            Assert.IsFalse(cache.GetItem("2", out _));
         }
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentOutOfRangeException))]
         public void GetItem_validates_parameters()
         {
-            object item;
-
-            var unused = new RedisCache("localhost:6379").GetItem(null, out item);
+            var unused = new RedisCache("localhost:6379").GetItem(null, out _);
         }
 
         [TestMethod]
@@ -199,14 +190,13 @@ namespace EFCache.Redis.Tests
             RedisCacheException exception = null;
             cache.CachingFailed += (s, e) => exception = e;
 
-            object item;
-            var success = cache.GetItem("1", out item);
+            var success = cache.GetItem("1", out var item);
 
             Assert.IsFalse(success);
             Assert.IsNull(item);
             Assert.IsNotNull(exception);
             Assert.IsInstanceOfType(exception.InnerException, typeof(RedisConnectionException));
-            Assert.AreEqual("Caching failed for GetItem", exception.Message);
+            Assert.AreEqual("Redis | Caching failed for GetItem", exception.Message);
         }
 
         [TestMethod]
