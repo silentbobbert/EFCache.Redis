@@ -57,26 +57,30 @@ namespace EFCache.Redis
         protected virtual void OnCachingFailed(Exception e, [CallerMemberName] string memberName = "")
         {
             var handler = CachingFailed;
+            var redisCacheException = new RedisCacheException("Redis | Caching failed for " + memberName, e);
             //don't simply digest, let caller handle exception if no handler provided
             if (handler == null)
             {
-                throw new RedisCacheException("Redis | Caching failed for " + memberName, e);
+                throw redisCacheException;
             }
-            var redisCacheException = new RedisCacheException("Caching failed for " + memberName, e);
             handler(this, redisCacheException);
         }
 
         public bool GetItem(string key, out object value)
         {
             key.GuardAgainstNullOrEmpty(nameof(key));
-            _database = _redis.GetDatabase(); //connect only if arguments are valid to optimize resources 
+            GetDatabase();
 
             key = HashKey(key);
-            var now = DateTimeOffset.Now;//local variables are thread safe should be out of sync lock
+            var now = DateTimeOffset.Now; //local variables are thread safe should be out of sync lock
             
             try
             {
-                value = _database.Get<CacheEntry>(key);
+                lock (_lock)
+                {
+                    value = _database.Get<CacheEntry>(key);
+                }
+                
             } 
             catch (Exception e) 
             {
@@ -116,6 +120,14 @@ namespace EFCache.Redis
             return false;
         }
 
+        private void GetDatabase()
+        {
+            lock (_lock)
+            {
+                _database = _database ?? _redis.GetDatabase();
+            }
+        }
+
         private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) => entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
 
         public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration, DateTimeOffset absoluteExpiration)
@@ -123,8 +135,8 @@ namespace EFCache.Redis
             key.GuardAgainstNullOrEmpty(nameof(key));
             // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
             dependentEntitySets.GuardAgainstNull(nameof(dependentEntitySets));
-           
-            _database = _redis.GetDatabase();
+
+            GetDatabase();
             
             key = HashKey(key);
             // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
@@ -165,9 +177,9 @@ namespace EFCache.Redis
         {
             // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
             entitySets.GuardAgainstNull(nameof(entitySets));
-            
-            _database = _redis.GetDatabase();
-            
+
+            GetDatabase();
+
             var itemsToInvalidate = new HashSet<string>();
 
             lock (_lock)
@@ -198,8 +210,8 @@ namespace EFCache.Redis
         public void InvalidateItem(string key)
         {
             key.GuardAgainstNullOrEmpty(nameof(key));
-            
-            _database = _redis.GetDatabase();
+
+            GetDatabase();
 
             key = HashKey(key);
 
@@ -228,7 +240,7 @@ namespace EFCache.Redis
         {
             get
             {
-                _database = _redis.GetDatabase();
+                GetDatabase();
                 lock (_lock)
                 {
                     var count = _database.Multiplexer.GetEndPoints()
@@ -239,7 +251,7 @@ namespace EFCache.Redis
         }
         public void Purge()
         {
-            _database = _redis.GetDatabase();
+            GetDatabase();
             lock (_lock)
             {
                 foreach (var endPoint in _database.Multiplexer.GetEndPoints())

@@ -25,10 +25,10 @@ namespace EFCache.Redis.Tests
 
             cache.PutItem("key", item, new string[0], TimeSpan.MaxValue, DateTimeOffset.MaxValue);
 
-            object fromCache;
-
-            Assert.IsTrue(cache.GetItem("key", out fromCache));
+            Assert.IsTrue(cache.GetItem("key", out var fromCache));
             Assert.AreEqual(item.Message, ((TestObject)fromCache).Message);
+
+            fromCache = null;
 
             Assert.IsTrue(cache.GetItem("key", out fromCache));
             Assert.AreEqual(item.Message, ((TestObject)fromCache).Message);
