@@ -12,19 +12,40 @@ namespace EFCache.Redis.Tests
         public string Message { get; set; }
     }
 
+    
     [TestClass]
     [UsedImplicitly]
     public class RedisCacheTests
     {
+        private readonly string RegularConnectionString = "localhost:6379";
+        private readonly string AdminConnectionString = "localhost:6379,allowAdmin=true";
         public RedisCacheTests()
         {
-            RedisStorageEmulatorManager.Instance.StartProcess(false);
+            try
+            {
+                // See if we have a running copy of redis in a K8s Cluster
+                // helm install --name redis-dev --set password=secretpassword --set master.disableCommands= stable/redis
+                // kubectl get secret --namespace default redis-dev -o jsonpath="{.data.redis-password}" | base64 --decode
+                // kubectl port-forward --namespace default svc/redis-dev-master 6379:6379
+                var connString = "localhost:6379,password=secretpassword";
+
+                var cache = new RedisCache(connString);
+                RegularConnectionString = connString;
+                AdminConnectionString = string.Join(",", connString, "allowAdmin=true");
+
+            }
+            catch (Exception)
+            {
+                // Could not connect to redis above, so start a local copy
+                RedisStorageEmulatorManager.Instance.StartProcess(false);
+            }
+           
         }
 
         [TestMethod]
         public void Item_cached()
         {
-            var cache = new RedisCache("localhost:6379");
+            var cache = new RedisCache(RegularConnectionString);
             var item = new TestObject { Message = "OK" };
 
             cache.PutItem("key", item, new string[0], TimeSpan.MaxValue, DateTimeOffset.MaxValue);
@@ -39,7 +60,7 @@ namespace EFCache.Redis.Tests
         [TestMethod]
         public void Item_not_returned_after_absolute_expiration_expired()
         {
-            var cache = new RedisCache("localhost:6379");
+            var cache = new RedisCache(RegularConnectionString);
             var item = new TestObject { Message = "OK" };
 
             cache.PutItem("key", item, new string[0], TimeSpan.MaxValue, DateTimeOffset.Now.AddMinutes(-10));
@@ -51,7 +72,7 @@ namespace EFCache.Redis.Tests
         [TestMethod]
         public void Item_not_returned_after_sliding_expiration_expired()
         {
-            var cache = new RedisCache("localhost:6379");
+            var cache = new RedisCache(RegularConnectionString);
             var item = new TestObject { Message = "OK" };
 
             cache.PutItem("key", item, new string[0], TimeSpan.Zero.Subtract(new TimeSpan(10000)), DateTimeOffset.MaxValue);
@@ -63,7 +84,7 @@ namespace EFCache.Redis.Tests
         [TestMethod]
         public void Item_still_returned_after_sliding_expiration_period()
         {
-            var cache = new RedisCache("localhost:6379");
+            var cache = new RedisCache(RegularConnectionString);
             var item = new TestObject { Message = "OK" };
 
             // Cache the item with a sliding expiration of 10 seconds
@@ -84,7 +105,7 @@ namespace EFCache.Redis.Tests
         [TestMethod]
         public void InvalidateSets_invalidate_items_with_given_sets()
         {
-            var cache = new RedisCache("localhost:6379");
+            var cache = new RedisCache(RegularConnectionString);
 
             cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
             cache.PutItem("2", new object(), new[] { "ES2", "ES3" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
@@ -102,7 +123,7 @@ namespace EFCache.Redis.Tests
         [TestMethod]
         public void InvalidateItem_invalidates_item()
         {
-            var cache = new RedisCache("localhost:6379");
+            var cache = new RedisCache(RegularConnectionString);
 
             cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
             cache.InvalidateItem("1");
@@ -113,7 +134,7 @@ namespace EFCache.Redis.Tests
         [TestMethod]
         public void Count_returns_numers_of_cached_entries()
         {
-            var cache = new RedisCache("localhost:6379,allowAdmin=true");
+            var cache = new RedisCache(AdminConnectionString);
 
             cache.Purge();
 
@@ -131,7 +152,7 @@ namespace EFCache.Redis.Tests
         [TestMethod]
         public void Purge_removes_stale_items_from_cache()
         {
-            var cache = new RedisCache("localhost:6379,allowAdmin=true");
+            var cache = new RedisCache(AdminConnectionString);
 
             cache.Purge();
 
@@ -152,35 +173,35 @@ namespace EFCache.Redis.Tests
         [ExpectedException(typeof(ArgumentOutOfRangeException))]
         public void GetItem_validates_parameters()
         {
-            var unused = new RedisCache("localhost:6379").GetItem(null, out _);
+            var unused = new RedisCache(RegularConnectionString).GetItem(null, out _);
         }
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentOutOfRangeException))]
         public void PutItem_validates_key_parameter()
         {
-            new RedisCache("localhost:6379").PutItem(null, 42, new string[0], TimeSpan.Zero, DateTimeOffset.Now);
+            new RedisCache(RegularConnectionString).PutItem(null, 42, new string[0], TimeSpan.Zero, DateTimeOffset.Now);
         }
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentNullException))]
         public void PutItem_validates_dependentEntitySets_parameter()
         {
-            new RedisCache("localhost:6379").PutItem("1", 42, null, TimeSpan.Zero, DateTimeOffset.Now);
+            new RedisCache(RegularConnectionString).PutItem("1", 42, null, TimeSpan.Zero, DateTimeOffset.Now);
         }
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentNullException))]
         public void InvalidateSets_validates_parameters()
         {
-            new RedisCache("localhost:6379").InvalidateSets(null);
+            new RedisCache(RegularConnectionString).InvalidateSets(null);
         }
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentOutOfRangeException))]
         public void InvalidateItem_validates_parameters()
         {
-            new RedisCache("localhost:6379").InvalidateItem(null);
+            new RedisCache(RegularConnectionString).InvalidateItem(null);
         }
 
         [TestMethod]
