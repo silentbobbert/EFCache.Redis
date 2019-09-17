@@ -1,7 +1,9 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace EFCache.Redis
 {
+    [Serializable, ExcludeFromCodeCoverage]
     public class RedisCacheException : Exception
     {
         public RedisCacheException()
