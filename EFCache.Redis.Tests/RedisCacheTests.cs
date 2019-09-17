@@ -131,7 +131,7 @@ namespace EFCache.Redis.Tests
             Assert.AreEqual(0, cache.Count);
         }
 
-        [Fact]
+        [TestMethod]
         public async Task ThreadingBlockTest()
         {
             var cache = new RedisCache("localhost:6379,allowAdmin=true");
@@ -147,7 +147,7 @@ namespace EFCache.Redis.Tests
             };
             cache.Purge();
 
-            Assert.Equal(0, cache.Count);
+            Assert.AreEqual(0, cache.Count);
 
             var crazyLargeResultSet = Enumerable.Range(1, 100000).Select(a => $"String {a}").ToArray();
 
@@ -196,8 +196,8 @@ namespace EFCache.Redis.Tests
             await threadGet;
             await Task.WhenAll(tasks);
 
-            Assert.NotNull(exception);
-            Assert.IsType<LockTimeoutException>(exception);
+            Assert.IsNotNull(exception);
+            Assert.IsInstanceOfType(exception, typeof(LockTimeoutException));
 
 
         }
