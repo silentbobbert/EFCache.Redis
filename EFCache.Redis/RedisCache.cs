@@ -72,7 +72,7 @@ namespace EFCache.Redis
         public bool GetItem(string key, out object value)
         {
             key.GuardAgainstNullOrEmpty(nameof(key));
-            GetDatabase();
+            EnsureDatabase();
 
             key = HashKey(key);
             var now = DateTimeOffset.Now; //local variables are thread safe should be out of sync lock
@@ -133,13 +133,7 @@ namespace EFCache.Redis
             return false;
         }
 
-        private void GetDatabase()
-        {
-            lock (_lock)
-            {
-                _database = _database ?? _redis.GetDatabase();
-            }
-        }
+        private void EnsureDatabase() => _database = _database ?? _redis.GetDatabase();
 
         private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) => entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
 
@@ -149,7 +143,7 @@ namespace EFCache.Redis
             // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
             dependentEntitySets.GuardAgainstNull(nameof(dependentEntitySets));
 
-            GetDatabase();
+            EnsureDatabase();
             
             key = HashKey(key);
             // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
@@ -201,7 +195,7 @@ namespace EFCache.Redis
             // ReSharper disable once PossibleMultipleEnumeration - the guard clause should not enumerate, its just checking the reference is not null
             entitySets.GuardAgainstNull(nameof(entitySets));
 
-            GetDatabase();
+            EnsureDatabase();
 
             var itemsToInvalidate = new HashSet<string>();
 
@@ -234,10 +228,11 @@ namespace EFCache.Redis
         {
             key.GuardAgainstNullOrEmpty(nameof(key));
 
-            GetDatabase();
+            EnsureDatabase();
 
             key = HashKey(key);
 
+            // todo change locking to apply to the entry key
             lock (_lock) 
             {
                 try 
@@ -263,18 +258,17 @@ namespace EFCache.Redis
         {
             get
             {
-                GetDatabase();
-                lock (_lock)
-                {
-                    var count = _database.Multiplexer.GetEndPoints()
-                        .Sum(endpoint => _database.Multiplexer.GetServer(endpoint).Keys(pattern: "*").LongCount());
-                    return count;
-                }
+                EnsureDatabase();
+                
+                var count = _database.Multiplexer.GetEndPoints()
+                    .Sum(endpoint => _database.Multiplexer.GetServer(endpoint).Keys(pattern: "*").LongCount());
+                return count;
+                
             }
         }
         public void Purge()
         {
-            GetDatabase();
+            EnsureDatabase();
             lock (_lock)
             {
                 foreach (var endPoint in _database.Multiplexer.GetEndPoints())
