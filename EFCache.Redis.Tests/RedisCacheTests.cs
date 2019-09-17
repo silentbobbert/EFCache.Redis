@@ -155,6 +155,7 @@ namespace EFCache.Redis.Tests
             Assert.AreEqual(0, cache.Count);
         }
 
+        
         [TestMethod]
         public async Task ThreadingBlockTest()
         {
@@ -162,7 +163,7 @@ namespace EFCache.Redis.Tests
 
             Exception exception = null;
 
-            cache.LockWaitTimeout = 250;
+            cache.LockWaitTimeout = 10;
 
             cache.CachingFailed += (sender, e) =>
             {
@@ -193,7 +194,7 @@ namespace EFCache.Redis.Tests
                     watch.Start();
                     Debug.WriteLine($"Invalidate {icopy} start");
                     if (i == 9)
-                    cache.InvalidateItem("1");
+                        cache.InvalidateItem("1");
                     else
                     {
                         object val;
