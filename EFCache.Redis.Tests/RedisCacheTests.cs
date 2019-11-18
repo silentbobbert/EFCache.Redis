@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 using EFCache.Redis.Tests.Annotations;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using StackExchange.Redis;
@@ -63,14 +64,16 @@ namespace EFCache.Redis.Tests
             var cache = new RedisCache(RegularConnectionString);
             var item = new TestObject { Message = "OK" };
 
-            cache.PutItem("key", item, new string[0], TimeSpan.MaxValue, DateTimeOffset.Now.AddMinutes(-10));
+            cache.PutItem("key", item, new string[0], TimeSpan.MaxValue, DateTimeOffset.Now.AddSeconds(1));
+
+            Thread.Sleep(1000);
 
             Assert.IsFalse(cache.GetItem("key", out var fromCache));
             Assert.IsNull(fromCache);
         }
 
         [TestMethod]
-        public void Item_not_returned_after_sliding_expiration_expired()
+        public void Item_not_returned_when_slidingexpiration_has_passed()
         {
             var cache = new RedisCache(RegularConnectionString);
             var item = new TestObject { Message = "OK" };
@@ -96,7 +99,7 @@ namespace EFCache.Redis.Tests
             {
                 Thread.Sleep(5000); // Wait 5 seconds
                 // Retrieve item again. This should update LastAccess and as such keep the item 'alive'
-                // Break when item cannot be retrieved
+                // Throw if item cannot be retrieved
                 Assert.IsTrue(cache.GetItem("key", out fromCache));
             }
             Assert.IsNotNull(fromCache);
@@ -149,6 +152,25 @@ namespace EFCache.Redis.Tests
             Assert.AreEqual(0, cache.Count);
         }
 
+
+        [TestMethod]
+        public void Count_does_not_return_expired_entries()
+        {
+            var cache = new RedisCache(AdminConnectionString);
+
+            cache.Purge();
+
+            Assert.AreEqual(0, cache.Count);
+
+            cache.PutItem("1", new object(), new string[0], TimeSpan.MaxValue, DateTimeOffset.Now.AddSeconds(1));
+
+            Assert.AreEqual(1, cache.Count); 
+
+            Thread.Sleep(1000);
+
+            Assert.AreEqual(0, cache.Count);
+        }
+
         [TestMethod]
         public void Purge_removes_stale_items_from_cache()
         {
@@ -156,10 +178,12 @@ namespace EFCache.Redis.Tests
 
             cache.Purge();
 
-            cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.Now.AddMinutes(-1));
+            cache.PutItem("1", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.Now.AddSeconds(1));
             cache.PutItem("2", new object(), new[] { "ES1", "ES2" }, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
 
             Assert.AreEqual(4, cache.Count); // "1", "2", "ES1", "ES2"
+
+            Thread.Sleep(1000);
 
             cache.Purge();
 

@@ -1,4 +1,5 @@
-﻿using StackExchange.Redis;
+﻿using System;
+using StackExchange.Redis;
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization.Formatters.Binary;
@@ -13,9 +14,9 @@ namespace EFCache.Redis
             return Deserialize<T>(item);
         }
 
-        public static void Set<T>(this IDatabase cache, string key, T value) where T : class
+        public static void Set<T>(this IDatabase cache, string key, T value, TimeSpan expiry) where T : class
         {
-            cache.StringSet(key, Serialize<T>(value));
+            cache.StringSet(key, Serialize<T>(value), expiry);
         }
 
         static byte[] Serialize<T>(T o) where T : class
