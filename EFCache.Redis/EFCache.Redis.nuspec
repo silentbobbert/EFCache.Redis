@@ -17,6 +17,7 @@
             <dependency id="Pipelines.Sockets.Unofficial" version="1.1.23" />
             <dependency id="System.Buffers" version="4.5.0"  />
             <dependency id="System.Diagnostics.PerformanceCounter" version="4.5.0"  />
+            <dependency id="System.IO.Compression" version="4.3.0"  />
             <dependency id="System.IO.Pipelines" version="4.5.3"  />
             <dependency id="System.Memory" version="4.5.2"  />
             <dependency id="System.Numerics.Vectors" version="4.5.0"  />
@@ -32,5 +33,7 @@
         <file src="bin\4.7.1\EFCache.Redis.dll.config" target="lib\net471\EFCache.Redis.dll.config" />
         <file src="bin\4.7.2\EFCache.Redis.dll" target="lib\net472\EFCache.Redis.dll" />
         <file src="bin\4.7.2\EFCache.Redis.dll.config" target="lib\net472\EFCache.Redis.dll.config" />
+        <file src="bin\4.8\EFCache.Redis.dll" target="lib\net48\EFCache.Redis.dll" />
+        <file src="bin\4.8\EFCache.Redis.dll.config" target="lib\net48\EFCache.Redis.dll.config" />
     </files>
 </package>
