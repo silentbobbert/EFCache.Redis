@@ -9,13 +9,29 @@ namespace EFCache.Redis.Tests
     {
 
         private static readonly Lazy<ConnectionMultiplexer> LazyConnection = new Lazy<ConnectionMultiplexer>(() => 
-            ConnectionMultiplexer.Connect("localhost:6379"));
+            ConnectionMultiplexer.Connect(RegularConnectionString));
 
+        private static string RegularConnectionString;
         public RedisCacheLazyTests()
         {
-            RedisStorageEmulatorManager.Instance.StartProcess(false);
-        }
+            try
+            {
+                // See if we have a running copy of redis in a K8s Cluster
+                // helm install --name redis-dev --set password=secretpassword --set master.disableCommands= stable/redis
+                // kubectl get secret --namespace default redis-dev -o jsonpath="{.data.redis-password}" | base64 --decode
+                // kubectl port-forward --namespace default svc/redis-dev-master 6379:6379
+                var connString = "localhost:6379,password=secretpassword";
 
+                var cache = new RedisCache(connString);
+                RegularConnectionString = connString;
+            }
+            catch (Exception)
+            {
+                // Could not connect to redis above, so start a local copy
+                RedisStorageEmulatorManager.Instance.StartProcess(false);
+            }
+
+        }
 
         [TestMethod]
         public void Item_cached_with_lazy()

@@ -159,3 +159,4 @@ $RECYCLE.BIN/
 /Outputs/4.5.1/EFCache.Redis.dll
 /EFCache.Redis.Tests/lib/dump.rdb
 .vs/
+*.nupkg
