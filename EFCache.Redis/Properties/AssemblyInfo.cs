@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("EFCache.Redis")]
-[assembly: AssemblyCopyright("Copyright ©  2019")]
+[assembly: AssemblyCopyright("Copyright ©  2020")]
 [assembly: AssemblyTrademark("Ian Robertson")]
 [assembly: AssemblyCulture("")]
 //[assembly: log4net.Config.XmlConfigurator(Watch = true)]
@@ -31,6 +31,6 @@ using System.Runtime.InteropServices;
 //      Build Number
 //      Revision
 //
-[assembly: AssemblyVersion("2019.3.11.1")]
-[assembly: AssemblyFileVersion("2019.3.11.1")]
+[assembly: AssemblyVersion("2020.1.6.1")]
+[assembly: AssemblyFileVersion("2020.1.6.1")]
 
