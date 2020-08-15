@@ -1,12 +1,11 @@
-﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using EFCache.Redis.Tests.Annotations;
+﻿using EFCache.Redis.Tests.Annotations;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using StackExchange.Redis;
-using System.Linq;
-using System.Threading.Tasks;
+using System;
 using System.Diagnostics;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace EFCache.Redis.Tests
 {
@@ -23,6 +22,7 @@ namespace EFCache.Redis.Tests
     {
         private readonly string RegularConnectionString = "localhost:6379";
         private readonly string AdminConnectionString = "localhost:6379,allowAdmin=true";
+
         public RedisCacheTests()
         {
             try
