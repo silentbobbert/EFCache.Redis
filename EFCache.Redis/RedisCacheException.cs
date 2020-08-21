@@ -18,4 +18,20 @@ namespace EFCache.Redis
         {
         }
     }
+
+
+    [Serializable]
+    public class LockTimeoutException : Exception
+    {
+        public LockTimeoutException() { }
+        public LockTimeoutException(string message) : base(message) { }
+        public LockTimeoutException(string message, Exception inner) : base(message, inner) { }
+        protected LockTimeoutException(
+          System.Runtime.Serialization.SerializationInfo info,
+          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+
+        public int ThreadId { get; internal set; }
+    }
+
+
 }
