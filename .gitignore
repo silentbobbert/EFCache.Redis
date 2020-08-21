@@ -160,3 +160,4 @@ $RECYCLE.BIN/
 /EFCache.Redis.Tests/lib/dump.rdb
 .vs/
 *.nupkg
+*.orig

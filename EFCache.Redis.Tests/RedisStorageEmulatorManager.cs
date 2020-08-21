@@ -22,10 +22,9 @@ namespace EFCache.Redis.Tests
 
         private static string GetLibFolder()
         {
-            var binFolder = Directory.GetParent(AssemblyDirectory);
-            var projectFolder = Directory.GetParent(binFolder.FullName);
+            
 
-            var pathToLibFolder = Path.Combine(projectFolder.FullName, "lib");
+            var pathToLibFolder = Path.Combine(AssemblyDirectory, "lib");
 
             return pathToLibFolder;
 
