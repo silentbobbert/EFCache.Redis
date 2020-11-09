@@ -21,7 +21,11 @@ namespace EFCache.Redis
 
         static byte[] Serialize<T>(T o) where T : class
         {
-            if (o == null) return null;
+            if (o == null)
+            {
+                return null;
+            }
+
             var binaryFormatter = new BinaryFormatter();
 
             using (var memoryStream = new MemoryStream())
@@ -34,7 +38,11 @@ namespace EFCache.Redis
 
         static T Deserialize<T>(byte[] stream)
         {
-            if (stream == null || !stream.Any()) return default(T);
+            if (stream == null || !stream.Any())
+            {
+                return default(T);
+            }
+
             var binaryFormatter = new BinaryFormatter();
             using (var memoryStream = new MemoryStream(stream))
             {
