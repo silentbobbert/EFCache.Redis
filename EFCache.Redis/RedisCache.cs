@@ -91,7 +91,10 @@ namespace EFCache.Redis
                 OnCachingFailed(e);
             }
 
-            if (value == null) return false;
+            if (value == null)
+            {
+                return false;
+            }
 
             var entry = (CacheEntry)value;
 
@@ -187,7 +190,11 @@ namespace EFCache.Redis
         private static string HashKey(string key)
         {
             //Looking up large Keys in Redis can be expensive (comparing Large Strings), so if keys are large, hash them, otherwise if keys are short just use as-is
-            if (key.Length <= 128) return key;
+            if (key.Length <= 128)
+            {
+                return key;
+            }
+
             using (var sha = new SHA1CryptoServiceProvider())
             {
                 key = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(key)));
@@ -244,7 +251,10 @@ namespace EFCache.Redis
                 {
                     var entry = _database.Get<CacheEntry>(key);
 
-                    if (entry == null) return;
+                    if (entry == null)
+                    {
+                        return;
+                    }
 
                     _database.KeyDelete(key, CommandFlags.FireAndForget);
 
