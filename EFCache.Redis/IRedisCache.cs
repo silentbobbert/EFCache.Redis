@@ -1,5 +1,4 @@
-﻿using EFCache;
-using System;
+﻿using System;
 
 namespace EFCache.Redis
 {

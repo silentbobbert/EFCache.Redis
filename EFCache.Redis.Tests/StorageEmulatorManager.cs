@@ -24,11 +24,17 @@ namespace EFCache.Redis.Tests
 
         public void StartProcess(bool waitForExit)
         {
-            if (IsProcessStarted()) return;
-
-            using (var process = Process.Start(_processStartInfo))
+            if(IsProcessStarted())
             {
-                if (process != null && waitForExit) process.WaitForExit();
+                return;
+            }
+
+            using(var process = Process.Start(_processStartInfo))
+            {
+                if(process != null && waitForExit)
+                {
+                    process.WaitForExit();
+                }
             }
         }
 

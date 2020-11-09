@@ -28,7 +28,8 @@ namespace EFCache.Redis.Tests
             try
             {
                 // See if we have a running copy of redis in a K8s Cluster
-                // helm install --name redis-dev --set password=secretpassword --set master.disableCommands= stable/redis
+                // helm upgrade --install redis-dev --set password=secretpassword --set master.disableCommands= bitnami/redis
+
                 // kubectl get secret --namespace default redis-dev -o jsonpath="{.data.redis-password}" | base64 --decode
                 // kubectl port-forward --namespace default svc/redis-dev-master 6379:6379
                 var connString = "localhost:6379,password=secretpassword";
@@ -38,12 +39,12 @@ namespace EFCache.Redis.Tests
                 AdminConnectionString = string.Join(",", connString, "allowAdmin=true");
 
             }
-            catch (Exception)
+            catch(Exception)
             {
                 // Could not connect to redis above, so start a local copy
                 RedisStorageEmulatorManager.Instance.StartProcess(false);
             }
-           
+
         }
 
         [TestMethod]
@@ -98,7 +99,7 @@ namespace EFCache.Redis.Tests
 
             object fromCache = null;
             // In a loop of 20 seconds retrieve the item every 5 second seconds.
-            for (var i = 0; i < 4; i++)
+            for(var i = 0; i < 4; i++)
             {
                 Thread.Sleep(5000); // Wait 5 seconds
                 // Retrieve item again. This should update LastAccess and as such keep the item 'alive'
@@ -155,7 +156,7 @@ namespace EFCache.Redis.Tests
             Assert.AreEqual(0, cache.Count);
         }
 
-        
+
         [TestMethod]
         public async Task ThreadingBlockTest()
         {
@@ -167,8 +168,10 @@ namespace EFCache.Redis.Tests
 
             cache.CachingFailed += (sender, e) =>
             {
-                if (e?.InnerException is LockTimeoutException)
+                if(e?.InnerException is LockTimeoutException)
+                {
                     exception = e.InnerException;
+                }
             };
             cache.Purge();
 
@@ -185,7 +188,7 @@ namespace EFCache.Redis.Tests
 
             var tasks = new Task[10];
 
-            for (var i = 0; i < 10; i++)
+            for(var i = 0; i < 10; i++)
             {
                 var icopy = i;
                 tasks[i] = Task.Run(() =>
@@ -193,12 +196,13 @@ namespace EFCache.Redis.Tests
                     var watch = new Stopwatch();
                     watch.Start();
                     Debug.WriteLine($"Invalidate {icopy} start");
-                    if (i == 9)
+                    if(i == 9)
+                    {
                         cache.InvalidateItem("1");
+                    }
                     else
                     {
-                        object val;
-                        cache.GetItem("1", out val);
+                        cache.GetItem("1", out var val);
                     }
                     watch.Stop();
                     Debug.WriteLine($"Invalidate {icopy} complete after {watch.ElapsedMilliseconds}");
@@ -211,8 +215,7 @@ namespace EFCache.Redis.Tests
                 Debug.WriteLine($"Get start");
                 var watch = new Stopwatch();
                 watch.Start();
-                object value;
-                cache.GetItem("1", out value);
+                cache.GetItem("1", out var value);
                 watch.Stop();
                 Debug.WriteLine($"Get complete after {watch.ElapsedMilliseconds}");
             });
@@ -227,10 +230,7 @@ namespace EFCache.Redis.Tests
 
         }
 
-        private void Cache_CachingFailed(object sender, RedisCacheException e)
-        {
-            throw new NotImplementedException();
-        }
+        private void Cache_CachingFailed(object sender, RedisCacheException e) => throw new NotImplementedException();
 
 
         [TestMethod]
@@ -244,7 +244,7 @@ namespace EFCache.Redis.Tests
 
             cache.PutItem("1", new object(), new string[0], TimeSpan.MaxValue, DateTimeOffset.Now.AddSeconds(1));
 
-            Assert.AreEqual(1, cache.Count); 
+            Assert.AreEqual(1, cache.Count);
 
             Thread.Sleep(1000);
 
@@ -282,31 +282,19 @@ namespace EFCache.Redis.Tests
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentOutOfRangeException))]
-        public void PutItem_validates_key_parameter()
-        {
-            new RedisCache(RegularConnectionString).PutItem(null, 42, new string[0], TimeSpan.Zero, DateTimeOffset.Now);
-        }
+        public void PutItem_validates_key_parameter() => new RedisCache(RegularConnectionString).PutItem(null, 42, new string[0], TimeSpan.Zero, DateTimeOffset.Now);
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentNullException))]
-        public void PutItem_validates_dependentEntitySets_parameter()
-        {
-            new RedisCache(RegularConnectionString).PutItem("1", 42, null, TimeSpan.Zero, DateTimeOffset.Now);
-        }
+        public void PutItem_validates_dependentEntitySets_parameter() => new RedisCache(RegularConnectionString).PutItem("1", 42, null, TimeSpan.Zero, DateTimeOffset.Now);
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentNullException))]
-        public void InvalidateSets_validates_parameters()
-        {
-            new RedisCache(RegularConnectionString).InvalidateSets(null);
-        }
+        public void InvalidateSets_validates_parameters() => new RedisCache(RegularConnectionString).InvalidateSets(null);
 
         [TestMethod]
         [ExpectedException(typeof(ArgumentOutOfRangeException))]
-        public void InvalidateItem_validates_parameters()
-        {
-            new RedisCache(RegularConnectionString).InvalidateItem(null);
-        }
+        public void InvalidateItem_validates_parameters() => new RedisCache(RegularConnectionString).InvalidateItem(null);
 
         [TestMethod]
         public void GetItem_does_not_crash_if_cache_is_unavailable()
