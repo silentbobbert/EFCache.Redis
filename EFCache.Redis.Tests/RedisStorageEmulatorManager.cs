@@ -16,19 +16,12 @@ namespace EFCache.Redis.Tests
             RedirectStandardOutput = true,
             WorkingDirectory = GetLibFolder() + @"\",
             UseShellExecute = false
-        }) 
-        {
-        }
+        }) {}
 
         private static string GetLibFolder()
         {
-            
-
             var pathToLibFolder = Path.Combine(AssemblyDirectory, "lib");
-
             return pathToLibFolder;
-
         }
-
     }
 }
