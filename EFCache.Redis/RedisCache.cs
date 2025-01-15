@@ -114,7 +114,7 @@ namespace EFCache.Redis
                 { 
                     try
                     {
-                        _database.Set(key, entry, GetTimeSpanExpiration(entry.AbsoluteExpiration));
+                        _database.Set(key, entry, GetTimeSpanExpiration(entry.AbsoluteExpiration, now));
                     }
                     catch (Exception e)
                     {
@@ -162,7 +162,7 @@ namespace EFCache.Redis
                         _database.SetAdd(AddCacheQualifier(entitySet), key, CommandFlags.FireAndForget);
                     }
 
-                    _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration), GetTimeSpanExpiration(absoluteExpiration));
+                    _database.Set(key, new CacheEntry(value, entitySets, slidingExpiration, absoluteExpiration), GetTimeSpanExpiration(absoluteExpiration, DateTimeOffset.Now));
                 }
                 catch (Exception e)
                 {
@@ -180,9 +180,9 @@ namespace EFCache.Redis
         
         }
 
-        private TimeSpan GetTimeSpanExpiration(DateTimeOffset expiration)
+        private TimeSpan GetTimeSpanExpiration(DateTimeOffset expiration, DateTimeOffset now)
         {
-            return TimeSpan.FromTicks(expiration.UtcTicks - DateTime.UtcNow.Ticks);
+            return TimeSpan.FromTicks(expiration.UtcTicks - now.UtcTicks);
         }
 
         private RedisKey AddCacheQualifier(string entitySet) => string.Concat(_cacheIdentifier, ".", entitySet);
