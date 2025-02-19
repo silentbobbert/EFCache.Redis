@@ -138,7 +138,7 @@ namespace EFCache.Redis
 
         private void EnsureDatabase() => _database = _database ?? _redis.GetDatabase();
 
-        private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) => entry.AbsoluteExpiration < now || (now - entry.LastAccess) > entry.SlidingExpiration;
+        private static bool EntryExpired(CacheEntry entry, DateTimeOffset now) => entry.AbsoluteExpiration <= now || (now - entry.LastAccess) > entry.SlidingExpiration;
 
         public void PutItem(string key, object value, IEnumerable<string> dependentEntitySets, TimeSpan slidingExpiration, DateTimeOffset absoluteExpiration)
         {
